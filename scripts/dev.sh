@@ -59,7 +59,9 @@ start_one() {
       echo "✓ api started on :$API_PORT (pid $!)"
       ;;
     web)
-      ( cd "$ROOT" && exec npm run dev -w web -- \
+      # Exec vite directly (not `npm run`, which leaves vite as an orphan whose
+      # pid we never recorded — status would then read the dead npm wrapper).
+      ( cd "$ROOT/web" && exec "$ROOT/node_modules/.bin/vite" \
         --host --port "$WEB_PORT" --strictPort ) >"$(logfile web)" 2>&1 &
       echo $! >"$(pidfile web)"
       echo "✓ web started on :$WEB_PORT (pid $!), LAN: http://$(lan_ip):$WEB_PORT"
