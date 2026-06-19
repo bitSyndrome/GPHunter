@@ -159,15 +159,26 @@ scripts/ghost-hunter.sh init     # merges into settings.json if jq is available
 scripts/ghost-hunter.sh status
 ```
 
-### Method C — Python (cross-platform, incl. Windows)
+### Method C — Windows (one-line PowerShell, recommended)
 
-Python 3 standard library only (no extra install); needs just `git`.
-**Recommended on Windows.** The Hook embeds the absolute interpreter + script
-paths, so no PATH setup is needed.
+The server ships a PowerShell installer that does a global install: it downloads
+the Python agent to `%USERPROFILE%\ghost-hunter` and creates a
+`%USERPROFILE%\bin\ghost-hunter.cmd` wrapper on PATH. (`$env:AGENT="node"` to use
+the Node bundle.)
+
+```powershell
+irm http://<host>:8787/api/v1/install.ps1 | iex
+# open a NEW terminal, then:
+ghost-hunter login http://<host>:8787 <token>
+ghost-hunter init
+```
+
+Manual alternative — grab the Python agent and run it (stdlib only, needs `git`).
+The Hook embeds absolute interpreter + script paths, so no PATH setup is needed.
 
 ```bash
 python scripts/ghost_hunter.py login http://localhost:8787 <token>
-python scripts/ghost_hunter.py init      # inject Hooks into ~/.claude/settings.json
+python scripts/ghost_hunter.py init
 python scripts/ghost_hunter.py status
 ```
 

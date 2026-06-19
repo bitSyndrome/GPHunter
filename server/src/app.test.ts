@@ -308,6 +308,13 @@ test("serves agent scripts and install.sh without auth", async () => {
   assert.match(body, /api\/v1\/agent\//);
   assert.match(body, /ghost-hunter login/);
 
+  const ps = await fetch(`${base}/api/v1/install.ps1`);
+  assert.equal(ps.status, 200);
+  const psBody = await ps.text();
+  assert.match(psBody, /\$Server = "http/);
+  assert.match(psBody, /Invoke-WebRequest/);
+  assert.match(psBody, /ghost-hunter\.cmd/);
+
   server.close();
 });
 

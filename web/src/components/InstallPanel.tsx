@@ -45,6 +45,12 @@ export function InstallPanel({ onClose }: { onClose: () => void }) {
     `ghost-hunter init`,
   ].join("\n");
 
+  const windows = [
+    `irm ${origin}/api/v1/install.ps1 | iex`,
+    `ghost-hunter login ${origin} <토큰>`,
+    `ghost-hunter init`,
+  ].join("\n");
+
   const shell = `curl -fsSL ${origin}/api/v1/install.sh | sh`;
 
   return (
@@ -79,7 +85,8 @@ export function InstallPanel({ onClose }: { onClose: () => void }) {
             title="🚀 전역 설치 (PATH 등록, 권장 · macOS/Linux)"
             code={globalInstall}
           />
-          <CopyBlock title="🐍 Python (Windows 포함)" code={python} />
+          <CopyBlock title="🪟 Windows (PowerShell, 전역 설치)" code={windows} />
+          <CopyBlock title="🐍 Python (수동)" code={python} />
           <CopyBlock title="⬢ Node (단일 파일, 수동)" code={node} />
           <CopyBlock title="🐚 셸 부트스트랩만" code={shell} />
         </div>

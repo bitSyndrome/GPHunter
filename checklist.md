@@ -115,6 +115,7 @@
 - [x] 사이트에서 에이전트 배포 — 서버가 스크립트 호스팅(`/api/v1/agent/*`, `/api/v1/install.sh`, 무인증), Node 단일파일 번들(esbuild `build:agent`), 대시보드 "📥 에이전트 설치" 패널(호스트 자동 채움) + E2E/스크린샷
 - [x] Node CLI에 `hook` 서브커맨드 통합 + `init`이 절대경로 `node <파일> hook` 주입(PATH 비의존)
 - [x] `install.sh` 전역 설치기 — `~/.local/bin/ghost-hunter` 설치+chmod+PATH 안내, AGENT(node|py|sh)/BIN 옵션 + E2E 검증
+- [x] `install.ps1` Windows 전역 설치기 — `irm ... | iex`, Python/Node 받아 `ghost-hunter.cmd` 래퍼+PATH 등록, 설치 패널 Windows 블록 + Python UTF-8 출력 보정
 
 ---
 

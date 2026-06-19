@@ -152,6 +152,45 @@ echo "  ghost-hunter init"
     );
   });
 
+  // Windows one-liner: irm <server>/api/v1/install.ps1 | iex
+  //   $env:AGENT = py|node (default py)
+  app.get("/api/v1/install.ps1", (req, res) => {
+    const server = `${req.protocol}://${req.get("host")}`;
+    res.type("text/plain; charset=utf-8").send(
+      `# Ghost Project Hunter - Windows installer
+\$ErrorActionPreference = "Stop"
+\$Server = "${server}"
+\$Agent  = if (\$env:AGENT) { \$env:AGENT } else { "py" }
+\$Dest   = Join-Path \$env:USERPROFILE "ghost-hunter"
+\$Bin    = Join-Path \$env:USERPROFILE "bin"
+New-Item -ItemType Directory -Force -Path \$Dest, \$Bin | Out-Null
+
+if (\$Agent -eq "node") { \$File = "ghost-hunter.cjs"; \$Runner = "node" }
+else                    { \$File = "ghost_hunter.py";  \$Runner = "python" }
+\$Target = Join-Path \$Dest \$File
+
+Write-Host "Downloading \$File from \$Server ..."
+Invoke-WebRequest -UseBasicParsing -Uri "\$Server/api/v1/agent/\$File" -OutFile \$Target
+
+# 'ghost-hunter' wrapper so it works from any terminal
+\$Cmd = Join-Path \$Bin "ghost-hunter.cmd"
+Set-Content -Path \$Cmd -Encoding ASCII -Value "@\$Runner ""\$Target"" %*"
+
+# ensure \$Bin is on the user PATH
+\$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if (\$userPath -notlike "*\$Bin*") {
+  [Environment]::SetEnvironmentVariable("Path", "\$userPath;\$Bin", "User")
+  Write-Host "Added \$Bin to your user PATH."
+}
+Write-Host "OK Installed: \$Cmd"
+Write-Host ""
+Write-Host "Next (open a NEW terminal so PATH refreshes):"
+Write-Host "  ghost-hunter login \$Server <TOKEN>"
+Write-Host "  ghost-hunter init"
+`,
+    );
+  });
+
   // Leaderboard list.
   api.get("/projects", (req: AuthedRequest, res) => {
     const sort = ProjectSortSchema.parse(req.query.sort ?? "active");

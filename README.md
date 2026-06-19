@@ -155,15 +155,25 @@ scripts/ghost-hunter.sh init     # jq 있으면 settings.json 자동 병합
 scripts/ghost-hunter.sh status
 ```
 
-### 방법 C — Python (Windows 포함 크로스플랫폼)
+### 방법 C — Windows (PowerShell 한 줄, 권장)
 
-Python 3 표준 라이브러리만 사용(추가 설치 없음), `git`만 있으면 동작합니다.
-**Windows**에서는 이 방법을 권장합니다. Hook에 파이썬 인터프리터·스크립트
-절대경로를 박아넣어 PATH 설정이 필요 없습니다.
+서버가 제공하는 PowerShell 설치기로 한 번에 전역 설치됩니다. Python 에이전트를
+`%USERPROFILE%\ghost-hunter`에 받고, `%USERPROFILE%\bin\ghost-hunter.cmd` 래퍼를
+만들어 PATH에 등록합니다. (`$env:AGENT="node"`로 Node 번들 선택 가능)
+
+```powershell
+irm http://<호스트>:8787/api/v1/install.ps1 | iex
+# 새 터미널을 열고:
+ghost-hunter login http://<호스트>:8787 <토큰>
+ghost-hunter init
+```
+
+수동으로 하려면 Python 에이전트를 직접 받아 실행해도 됩니다 (표준 라이브러리만,
+`git` 필요). Hook에 인터프리터·스크립트 절대경로를 박아 PATH 설정이 불필요합니다.
 
 ```bash
 python scripts/ghost_hunter.py login http://localhost:8787 <토큰>
-python scripts/ghost_hunter.py init      # ~/.claude/settings.json 에 Hook 주입
+python scripts/ghost_hunter.py init
 python scripts/ghost_hunter.py status
 ```
 
