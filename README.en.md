@@ -205,11 +205,11 @@ scripts/ghost-hunter.sh log "project-name" "what you did"
   - 🏆 **Most Active** — most activity (turns) in the last 7 days.
   - 👻 **Most Haunted** — ghost tier and above, by ghost score.
   - 🔥 **Momentum** — by activity momentum.
-- **Ghost tiers** (time since last activity)
+- **Ghost tiers** (time since last activity — shown on cards as a Material icon + label)
   | Tier | Threshold |
   |---|---|
   | 🔥 Fresh | < 3 days |
-  | 🌤 Cooling | 3 – 14 days |
+  | ❄️ Cooling | 3 – 14 days |
   | 👻 Haunting | 14 – 30 days |
   | 🪦 Buried | 30+ days |
 - **Gauges**
@@ -217,10 +217,12 @@ scripts/ghost-hunter.sh log "project-name" "what you did"
     (0–100%).
   - **Maturity** — README/tests/CI/deploy-config/tags/version heuristic (0–100%).
     A manual completion value overrides it.
-- **Contribution heatmap** — a last-30-days grid (week columns × weekday rows)
-  on each card; shaded in 5 levels by daily turns (GitHub-style).
-- **Actions** — hover a card for 📌 pin / 🗄 archive; click the title for details
-  (sparkline, recent summary, manual completion).
+- **Contribution heatmap** — each card's `HeatMap` grid (last 30 days, oldest→
+  newest wrapping every 10 cells); shaded in 5 levels by daily turns (GitHub-style).
+- **Actions** — 📌 pin / 🗄 archive icons in the card's top-right (always visible);
+  click the title for details (sparkline, recent summary, manual completion).
+
+> UI icons are unified on Google **Material Symbols** (Rounded).
 
 ---
 
@@ -240,6 +242,9 @@ The server identifies the same project by any key.
   project and the primary key is promoted to the remote (history preserved).
 - Two projects split across keys get **auto-merged** when linked (summed, then
   cleaned up).
+- Windows **drive-letter case** (`d:\…` vs `D:\…`) is normalized server-side at
+  ingestion, so the same folder never splits into two projects (regardless of
+  which agent implementation or version produced the key).
 
 ---
 
