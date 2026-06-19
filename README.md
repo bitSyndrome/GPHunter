@@ -114,8 +114,22 @@ web:  http://localhost:5273   (LAN: http://192.168.0.142:5273)
 ## 📡 활동 수집 설정 (클라이언트)
 
 대시보드에 데이터가 쌓이려면 작업하는 PC에 **에이전트**를 설치해야 합니다.
-방법 A(Node) 또는 방법 B(셸) 중 하나를 고르세요. 둘은 설정 디렉토리
-(`~/.config/ghost-hunter`)를 공유하므로 호환됩니다.
+아래 방법 중 하나를 고르세요. 모두 설정 디렉토리(`~/.config/ghost-hunter`)를
+공유하므로 혼용 가능합니다.
+
+> 💡 **가장 쉬운 방법**: 대시보드 우측 상단 **📥 에이전트 설치** 버튼을 누르면
+> 현재 서버 주소가 채워진 복사용 명령이 나옵니다. 서버가 에이전트 스크립트를
+> 직접 호스팅하므로 다른 PC에서 `curl`로 받아 바로 실행할 수 있습니다:
+>
+> ```bash
+> # Python (Windows 포함)
+> curl -O http://<호스트>:8787/api/v1/agent/ghost_hunter.py
+> # Node 단일 파일
+> curl -O http://<호스트>:8787/api/v1/agent/ghost-hunter.cjs
+> # 셸 한 줄 부트스트랩
+> curl -fsSL http://<호스트>:8787/api/v1/install.sh | sh
+> ```
+> (Node 단일 파일은 `npm run build:agent`로 미리 빌드되어야 서빙됩니다.)
 
 ### 방법 A — Node CLI (전역 명령)
 

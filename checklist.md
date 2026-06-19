@@ -112,6 +112,8 @@
 - [x] 기여도 히트맵 — 각 카드에 최근 30일 GitHub 잔디밭 (일별 턴 기준 5단계), 서버 일별 집계 + 테스트
 - [x] `scan` 명령 (Node+셸) — 과거 git 커밋 백필, 벌크 엔드포인트(`/events/bulk`), `scan:<날짜>` 디듀프로 재실행 안전 + 테스트
 - [x] Python 에이전트 (`scripts/ghost_hunter.py`) — Windows 포함 크로스플랫폼, 표준 라이브러리만, Node/셸과 config·키 호환 (login/init/hook/log/scan/flush/status) + E2E 검증
+- [x] 사이트에서 에이전트 배포 — 서버가 스크립트 호스팅(`/api/v1/agent/*`, `/api/v1/install.sh`, 무인증), Node 단일파일 번들(esbuild `build:agent`), 대시보드 "📥 에이전트 설치" 패널(호스트 자동 채움) + E2E/스크린샷
+- [x] Node CLI에 `hook` 서브커맨드 통합 + `init`이 절대경로 `node <파일> hook` 주입(PATH 비의존)
 
 ---
 

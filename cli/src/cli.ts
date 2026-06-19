@@ -15,10 +15,19 @@ import {
   commitsByDay,
 } from "./collect.ts";
 import { postEvent, postBulk, enqueue, flushOutbox } from "./send.ts";
+import { runHook } from "./hookrun.ts";
 import type { EventPayload } from "@gph/shared";
 
-const HOOK_COMMAND = "ghost-hunter-hook";
 const CLAUDE_SETTINGS = path.join(os.homedir(), ".claude", "settings.json");
+
+/**
+ * Absolute hook command for this exact agent invocation — works whether run as
+ * the npm bin (dist/cli.js) or the single-file bundle (ghost-hunter.cjs), with
+ * no PATH dependency.
+ */
+function hookCommand(): string {
+  return `"${process.execPath}" "${path.resolve(process.argv[1])}" hook`;
+}
 
 function parseFlags(args: string[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -47,6 +56,7 @@ function injectClaudeHooks(): boolean {
     /* fresh settings */
   }
   const hooks = (settings.hooks ??= {}) as Record<string, unknown[]>;
+  const command = hookCommand();
   let changed = false;
 
   for (const event of ["SessionStart", "SessionEnd"]) {
@@ -54,10 +64,10 @@ function injectClaudeHooks(): boolean {
       hooks?: Array<{ command?: string }>;
     }>;
     const already = groups.some((g) =>
-      g.hooks?.some((h) => h.command?.includes(HOOK_COMMAND)),
+      g.hooks?.some((h) => h.command?.includes("ghost")),
     );
     if (!already) {
-      groups.push({ hooks: [{ command: HOOK_COMMAND, type: "command", timeout: 2 } as never] });
+      groups.push({ hooks: [{ command, type: "command", timeout: 2 } as never] });
       changed = true;
     }
   }
@@ -227,27 +237,32 @@ Usage:
   ghost-hunter init [--server u --token t] Install Claude Code hooks
   ghost-hunter log "<project>" "<summary>" Manually log activity from cwd
   ghost-hunter scan [--days N] [--name X]  Backfill past git commits as activity
+  ghost-hunter hook                        (called by Claude Code — reads stdin)
   ghost-hunter flush                       Send queued (offline) events
   ghost-hunter status                      Show config + server health`);
 }
 
 const [cmd, ...rest] = process.argv.slice(2);
-const run =
-  cmd === "login"
-    ? cmdLogin(rest)
-    : cmd === "init"
-      ? cmdInit(rest)
-      : cmd === "log"
-        ? cmdLog(rest)
-        : cmd === "scan"
-          ? cmdScan(rest)
-          : cmd === "flush"
-          ? cmdFlush()
-          : cmd === "status"
-            ? cmdStatus()
-            : (usage(), Promise.resolve());
+if (cmd === "hook") {
+  runHook(); // terminal — manages its own exit, never throws
+} else {
+  const run =
+    cmd === "login"
+      ? cmdLogin(rest)
+      : cmd === "init"
+        ? cmdInit(rest)
+        : cmd === "log"
+          ? cmdLog(rest)
+          : cmd === "scan"
+            ? cmdScan(rest)
+            : cmd === "flush"
+              ? cmdFlush()
+              : cmd === "status"
+                ? cmdStatus()
+                : (usage(), Promise.resolve());
 
-run.catch((err) => {
-  console.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
-});
+  run.catch((err) => {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  });
+}

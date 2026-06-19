@@ -10,6 +10,7 @@ const app = createApp(db, {
     capacity: config.rateCapacity,
     refillPerSec: config.rateRefillPerSec,
   },
+  scriptsDir: config.scriptsDir,
 });
 
 app.listen(config.port, config.host, () => {

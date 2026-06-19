@@ -6,11 +6,13 @@ import { StatsBar } from "./components/StatsBar.tsx";
 import { SortTabs } from "./components/SortTabs.tsx";
 import { ProjectRow } from "./components/ProjectRow.tsx";
 import { ProjectDetail } from "./components/ProjectDetail.tsx";
+import { InstallPanel } from "./components/InstallPanel.tsx";
 
 function Leaderboard() {
   const [sort, setSort] = useState<ProjectSort>("active");
   const [showArchived, setShowArchived] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [showInstall, setShowInstall] = useState(false);
   const { data: projects, isLoading, error } = useProjects(sort, showArchived);
   const { data: stats } = useStats();
 
@@ -20,15 +22,23 @@ function Leaderboard() {
         <h1 className="text-2xl font-semibold text-[var(--color-accent)]">
           👻 Ghost Project Hunter
         </h1>
-        <button
-          onClick={() => {
-            clearToken();
-            location.reload();
-          }}
-          className="text-xs text-neutral-500 hover:text-neutral-300"
-        >
-          로그아웃
-        </button>
+        <div className="flex items-center gap-3 text-xs">
+          <button
+            onClick={() => setShowInstall(true)}
+            className="rounded-lg bg-neutral-800 px-3 py-1.5 text-neutral-200 hover:bg-neutral-700"
+          >
+            📥 에이전트 설치
+          </button>
+          <button
+            onClick={() => {
+              clearToken();
+              location.reload();
+            }}
+            className="text-neutral-500 hover:text-neutral-300"
+          >
+            로그아웃
+          </button>
+        </div>
       </header>
 
       <StatsBar stats={stats} />
@@ -65,6 +75,7 @@ function Leaderboard() {
       {openId != null && (
         <ProjectDetail id={openId} onClose={() => setOpenId(null)} />
       )}
+      {showInstall && <InstallPanel onClose={() => setShowInstall(false)} />}
     </div>
   );
 }

@@ -1,0 +1,14 @@
+import { chromium } from "playwright";
+const TOKEN = process.env.GPH_SEED_TOKEN ?? "demo-token";
+const URL = process.env.GPH_WEB_URL ?? "http://localhost:5273";
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 900, height: 800 } });
+await page.goto(URL, { waitUntil: "networkidle" });
+await page.fill('input[placeholder="API 토큰"]', TOKEN);
+await page.getByRole("button", { name: "접속" }).click();
+await page.getByRole("button", { name: /에이전트 설치/ }).click();
+await page.waitForSelector("text=Python");
+await page.waitForTimeout(600);
+await page.screenshot({ path: "shot-install.png" });
+await browser.close();
+console.log("install panel screenshot written");

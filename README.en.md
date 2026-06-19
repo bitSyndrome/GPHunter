@@ -117,9 +117,20 @@ the token field to sign in.
 
 ## 📡 Activity collection (client)
 
-For data to appear, install the **agent** on the machine you work on. Pick
-method A (Node) or B (shell) — they share the config dir
-(`~/.config/ghost-hunter`), so they are interchangeable.
+For data to appear, install the **agent** on the machine you work on. Pick any
+method below — they share the config dir (`~/.config/ghost-hunter`), so they are
+interchangeable.
+
+> 💡 **Easiest**: click **📥 에이전트 설치 (Install agent)** in the dashboard
+> header for copy-paste commands with your server URL filled in. The server hosts
+> the agent scripts, so any machine can `curl` and run them:
+>
+> ```bash
+> curl -O http://<host>:8787/api/v1/agent/ghost_hunter.py     # Python (incl. Windows)
+> curl -O http://<host>:8787/api/v1/agent/ghost-hunter.cjs    # Node single file
+> curl -fsSL http://<host>:8787/api/v1/install.sh | sh        # shell bootstrap
+> ```
+> (The Node single file must be pre-built via `npm run build:agent`.)
 
 ### Method A — Node CLI (global command)
 

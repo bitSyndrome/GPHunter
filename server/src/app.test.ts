@@ -8,7 +8,11 @@ const TOKEN = "test-token";
 
 function startServer(rate = { capacity: 1000, refillPerSec: 1000 }) {
   const db = openDb(":memory:", TOKEN);
-  const app = createApp(db, { corsOrigin: "*", rateLimit: rate });
+  const app = createApp(db, {
+    corsOrigin: "*",
+    rateLimit: rate,
+    scriptsDir: new URL("../../scripts", import.meta.url).pathname,
+  });
   const server = app.listen(0);
   const port = (server.address() as AddressInfo).port;
   const base = `http://127.0.0.1:${port}`;
@@ -284,6 +288,25 @@ test("normal hook sessions are NOT deduped (SessionStart + SessionEnd)", async (
   ).json();
   assert.equal(p.total_turns, 6, "SessionEnd turns counted, not skipped");
   assert.equal(p.total_sessions, 1);
+  server.close();
+});
+
+test("serves agent scripts and install.sh without auth", async () => {
+  const { server, base } = startServer();
+
+  const py = await fetch(`${base}/api/v1/agent/ghost_hunter.py`); // no token
+  assert.equal(py.status, 200);
+  assert.match(await py.text(), /Ghost Project Hunter/);
+
+  const bad = await fetch(`${base}/api/v1/agent/config.ts`);
+  assert.equal(bad.status, 404, "allowlist blocks non-agent files");
+
+  const sh = await fetch(`${base}/api/v1/install.sh`);
+  assert.equal(sh.status, 200);
+  const body = await sh.text();
+  assert.match(body, /SERVER="http/);
+  assert.match(body, /agent\/ghost_hunter\.py/);
+
   server.close();
 });
 

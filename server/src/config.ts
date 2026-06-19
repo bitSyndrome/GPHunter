@@ -8,6 +8,7 @@ export interface Config {
   corsOrigin: string;
   rateCapacity: number;
   rateRefillPerSec: number;
+  scriptsDir: string;
 }
 
 export function loadConfig(): Config {
@@ -27,5 +28,9 @@ export function loadConfig(): Config {
     corsOrigin: process.env.GPH_CORS_ORIGIN ?? "*",
     rateCapacity: Number(process.env.GPH_RATE_CAPACITY ?? 60),
     rateRefillPerSec: Number(process.env.GPH_RATE_REFILL ?? 1),
+    // Agent scripts to serve for download (repo /scripts by default).
+    scriptsDir:
+      process.env.GPH_SCRIPTS_DIR ??
+      path.resolve(import.meta.dirname, "..", "..", "scripts"),
   };
 }

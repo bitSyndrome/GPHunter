@@ -1,5 +1,7 @@
 import express, { type Express } from "express";
 import cors from "cors";
+import fs from "node:fs";
+import path from "node:path";
 import {
   EventSchema,
   EventResponseSchema,
@@ -25,7 +27,16 @@ import {
 export interface AppOptions {
   corsOrigin: string;
   rateLimit: RateLimitOptions;
+  scriptsDir: string;
 }
+
+// Agent scripts downloadable without auth (they contain no secrets).
+const AGENT_FILES: Record<string, { file: string; type: string }> = {
+  "ghost_hunter.py": { file: "ghost_hunter.py", type: "text/x-python" },
+  "ghost-hunter.sh": { file: "ghost-hunter.sh", type: "text/x-shellscript" },
+  // single-file Node bundle (built via `npm run build:agent`)
+  "ghost-hunter.cjs": { file: "dist/ghost-hunter.cjs", type: "text/javascript" },
+};
 
 export function createApp(db: DB, opts: AppOptions): Express {
   const app = express();
@@ -35,6 +46,44 @@ export function createApp(db: DB, opts: AppOptions): Express {
 
   app.get("/api/v1/health", (_req, res) => {
     res.json({ ok: true });
+  });
+
+  // ── Agent distribution (unauthenticated) ──────────────────────────────────
+  app.get("/api/v1/agent/:name", (req, res) => {
+    const entry = AGENT_FILES[req.params.name];
+    if (!entry) {
+      res.status(404).json({ error: "unknown agent" });
+      return;
+    }
+    const full = path.join(opts.scriptsDir, entry.file);
+    fs.readFile(full, "utf8", (err, data) => {
+      if (err) {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      res.type(entry.type).send(data);
+    });
+  });
+
+  // One-line bootstrap: curl -fsSL <server>/api/v1/install.sh | sh
+  app.get("/api/v1/install.sh", (req, res) => {
+    const server = `${req.protocol}://${req.get("host")}`;
+    res.type("text/x-shellscript").send(
+      `#!/usr/bin/env sh
+# Ghost Project Hunter — agent installer
+set -e
+SERVER="${server}"
+DEST="\${DEST:-ghost_hunter.py}"
+echo "Downloading agent from $SERVER ..."
+curl -fsSL "$SERVER/api/v1/agent/ghost_hunter.py" -o "$DEST"
+echo "✓ Saved to $DEST"
+echo ""
+echo "Next steps (need your API token):"
+echo "  python3 $DEST login $SERVER <TOKEN>"
+echo "  python3 $DEST init       # install Claude Code hooks"
+echo "  python3 $DEST scan       # (optional) backfill past git commits"
+`,
+    );
   });
 
   const api = express.Router();
