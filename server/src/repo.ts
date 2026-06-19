@@ -106,6 +106,7 @@ export function ingestEvent(
   last_active_at: string;
   total_turns: number;
   skipped?: boolean;
+  updated?: boolean;
 } {
   const nowIso = new Date().toISOString();
   const ts = payload.ts ?? nowIso;
@@ -132,21 +133,42 @@ export function ingestEvent(
     // Resolve project by any alias; merge if multiple matched.
     const matches = matchingProjectIds(db, userId, keys);
 
-    // Idempotency: skip a duplicate event (same project + session_id).
-    // Lets `scan` be re-run safely — backfilled days won't double-count.
-    if (payload.session_id && matches.length === 1) {
-      const dup = db
+    // Scan idempotency (scan: events only — NOT normal hook sessions, whose
+    // SessionStart/SessionEnd legitimately share a session_id). Re-scanning a
+    // day REPLACES its value with the latest commit count instead of adding.
+    const isScan = payload.session_id?.startsWith("scan:") ?? false;
+    if (isScan && matches.length === 1) {
+      const prior = db
         .prepare(
-          "SELECT 1 FROM events WHERE project_id = ? AND session_id = ? LIMIT 1",
+          "SELECT id, turns FROM events WHERE project_id = ? AND session_id = ? LIMIT 1",
         )
-        .get(matches[0], payload.session_id);
-      if (dup) {
+        .get(matches[0], payload.session_id) as
+        | { id: number; turns: number }
+        | undefined;
+      if (prior) {
+        const delta = turns - prior.turns;
+        if (delta !== 0) {
+          db.prepare("UPDATE events SET turns = ?, ts = ? WHERE id = ?").run(
+            turns,
+            ts,
+            prior.id,
+          );
+          db.prepare(
+            `UPDATE projects SET total_turns = total_turns + ?,
+               last_active_at = MAX(last_active_at, ?) WHERE id = ?`,
+          ).run(delta, ts, matches[0]);
+        }
         const row = db
           .prepare(
             "SELECT last_active_at, total_turns FROM projects WHERE id = ?",
           )
           .get(matches[0]) as { last_active_at: string; total_turns: number };
-        return { project_id: matches[0], skipped: true, ...row };
+        return {
+          project_id: matches[0],
+          updated: delta !== 0,
+          skipped: delta === 0,
+          ...row,
+        };
       }
     }
 

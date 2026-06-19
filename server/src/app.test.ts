@@ -228,36 +228,62 @@ test("bulk ingest backfills and is idempotent by session_id", async () => {
     ],
   });
 
-  const first = await (
-    await fetch(`${base}/api/v1/events/bulk`, {
+  const bulk = (body: unknown) =>
+    fetch(`${base}/api/v1/events/bulk`, {
       method: "POST",
       headers: authed(),
-      body: JSON.stringify(mkEvents()),
-    })
-  ).json();
+      body: JSON.stringify(body),
+    }).then((r) => r.json());
+  const turns = async () =>
+    (await (await fetch(`${base}/api/v1/projects`, { headers: authed() })).json())[0]
+      .total_turns;
+
+  const first = await bulk(mkEvents());
   assert.equal(first.ingested, 2);
   assert.equal(first.skipped, 0);
+  assert.equal(await turns(), 8, "3 + 5 backfilled");
 
-  let [p] = await (
-    await fetch(`${base}/api/v1/projects`, { headers: authed() })
-  ).json();
-  assert.equal(p.total_turns, 8, "3 + 5 backfilled");
-
-  // Re-run the same scan -> all skipped, no double count.
-  const second = await (
-    await fetch(`${base}/api/v1/events/bulk`, {
-      method: "POST",
-      headers: authed(),
-      body: JSON.stringify(mkEvents()),
-    })
-  ).json();
+  // Re-run identical scan -> all unchanged, no double count.
+  const second = await bulk(mkEvents());
   assert.equal(second.ingested, 0);
+  assert.equal(second.updated, 0);
   assert.equal(second.skipped, 2);
+  assert.equal(await turns(), 8, "still 8 after identical re-scan");
 
-  [p] = await (
+  // Re-scan with a higher count on day 2 (5 -> 9) REPLACES, not adds.
+  const grown = mkEvents();
+  grown.events[1].metrics.turns = 9;
+  const third = await bulk(grown);
+  assert.equal(third.updated, 1, "day 2 updated");
+  assert.equal(third.skipped, 1, "day 1 unchanged");
+  assert.equal(await turns(), 12, "3 + 9 (replaced, not 3+5+9)");
+  server.close();
+});
+
+test("normal hook sessions are NOT deduped (SessionStart + SessionEnd)", async () => {
+  const { server, base } = startServer();
+  const ev = (event_type: string, t: number) => ({
+    device_id: "d",
+    event_type,
+    session_id: "claude-session-123", // same id for both, like real hooks
+    project: { key: "k", name: "n" },
+    metrics: { turns: t },
+  });
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify(ev("session_start", 0)),
+  });
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify(ev("session_end", 6)),
+  });
+  const [p] = await (
     await fetch(`${base}/api/v1/projects`, { headers: authed() })
   ).json();
-  assert.equal(p.total_turns, 8, "still 8 after re-scan");
+  assert.equal(p.total_turns, 6, "SessionEnd turns counted, not skipped");
+  assert.equal(p.total_sessions, 1);
   server.close();
 });
 

@@ -66,17 +66,20 @@ export function createApp(db: DB, opts: AppOptions): Express {
       return;
     }
     let ingested = 0;
+    let updated = 0;
     let skipped = 0;
     const ids = new Set<number>();
     for (const ev of parsed.data.events) {
       const r = ingestEvent(db, req.userId!, ev);
       ids.add(r.project_id);
-      if (r.skipped) skipped++;
+      if (r.updated) updated++;
+      else if (r.skipped) skipped++;
       else ingested++;
     }
     res.json(
       BulkEventResponseSchema.parse({
         ingested,
+        updated,
         skipped,
         project_ids: [...ids],
       }),

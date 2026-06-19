@@ -179,7 +179,7 @@ async function cmdScan(args: string[]): Promise<void> {
   if (result) {
     console.log(
       `✓ Scanned "${name}": ${byDay.size} active days, ${totalCommits} commits over ${days}d ` +
-        `(${result.ingested} new, ${result.skipped} already recorded)`,
+        `(${result.ingested} new, ${result.updated} updated, ${result.skipped} unchanged)`,
     );
   } else {
     for (const ev of events) enqueue(ev);

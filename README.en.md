@@ -246,7 +246,8 @@ status                      config + server health
 
 > **Backfill existing projects**: run `ghost-hunter scan` in a repo that already
 > has commits to fill the contribution heatmap from git history. Each day is keyed
-> by `scan:<date>`, so re-running is **safe** (no double counting).
+> by `scan:<date>`, so re-running is **safe** — and if a day gains more commits, a
+> re-scan **updates** that day to the latest count (no double counting).
 
 ---
 

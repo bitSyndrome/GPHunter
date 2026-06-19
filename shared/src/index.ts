@@ -105,6 +105,7 @@ export type BulkEventPayload = z.infer<typeof BulkEventSchema>;
 
 export const BulkEventResponseSchema = z.object({
   ingested: z.number().int(),
+  updated: z.number().int(),
   skipped: z.number().int(),
   project_ids: z.array(z.number().int()),
 });

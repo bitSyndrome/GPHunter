@@ -35,7 +35,7 @@ export async function postEvent(
 export async function postBulk(
   cfg: CliConfig,
   events: EventPayload[],
-): Promise<{ ingested: number; skipped: number } | null> {
+): Promise<{ ingested: number; updated: number; skipped: number } | null> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 30_000);
   try {
@@ -49,7 +49,11 @@ export async function postBulk(
       signal: ac.signal,
     });
     if (!res.ok) return null;
-    return (await res.json()) as { ingested: number; skipped: number };
+    return (await res.json()) as {
+      ingested: number;
+      updated: number;
+      skipped: number;
+    };
   } catch {
     return null;
   } finally {
