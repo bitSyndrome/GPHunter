@@ -11,12 +11,12 @@ export function Gauge({
 }) {
   const pct = Math.max(0, Math.min(100, value));
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between text-xs text-neutral-400">
-        <span>{label}</span>
-        <span>{hint ?? `${Math.round(pct)}%`}</span>
-      </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+    <div
+      className="flex items-center gap-2 text-xs text-neutral-400"
+      title={`${label}: ${hint ?? `${Math.round(pct)}%`}`}
+    >
+      <span className="shrink-0">{label}</span>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-800">
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{ width: `${pct}%`, backgroundColor: color }}
