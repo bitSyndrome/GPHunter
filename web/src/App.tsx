@@ -1,12 +1,86 @@
+import { useState } from "react";
+import type { ProjectSort } from "@gph/shared";
+import { useProjects, useStats, clearToken } from "./api.ts";
+import { TokenGate } from "./components/TokenGate.tsx";
+import { StatsBar } from "./components/StatsBar.tsx";
+import { SortTabs } from "./components/SortTabs.tsx";
+import { ProjectRow } from "./components/ProjectRow.tsx";
+import { ProjectDetail } from "./components/ProjectDetail.tsx";
+
+function Leaderboard() {
+  const [sort, setSort] = useState<ProjectSort>("active");
+  const [showArchived, setShowArchived] = useState(false);
+  const [openId, setOpenId] = useState<number | null>(null);
+  const { data: projects, isLoading, error } = useProjects(sort, showArchived);
+  const { data: stats } = useStats();
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-8">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-[var(--color-accent)]">
+          👻 Ghost Project Hunter
+        </h1>
+        <button
+          onClick={() => {
+            clearToken();
+            location.reload();
+          }}
+          className="text-xs text-neutral-500 hover:text-neutral-300"
+        >
+          로그아웃
+        </button>
+      </header>
+
+      <StatsBar stats={stats} />
+      <SortTabs sort={sort} onChange={setSort} />
+
+      <label className="flex items-center gap-2 self-end text-xs text-neutral-400">
+        <input
+          type="checkbox"
+          checked={showArchived}
+          onChange={(e) => setShowArchived(e.target.checked)}
+        />
+        아카이브 포함
+      </label>
+
+      {error ? (
+        <Empty text="불러오기 실패 — 토큰을 확인하세요." />
+      ) : isLoading ? (
+        <Empty text="불러오는 중…" />
+      ) : !projects || projects.length === 0 ? (
+        <Empty text="아직 수집된 프로젝트가 없습니다. ghost-hunter init 으로 훅을 설치하세요." />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {projects.map((p, i) => (
+            <ProjectRow
+              key={p.id}
+              rank={i + 1}
+              project={p}
+              onOpen={() => setOpenId(p.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {openId != null && (
+        <ProjectDetail id={openId} onClose={() => setOpenId(null)} />
+      )}
+    </div>
+  );
+}
+
+function Empty({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-neutral-800 p-10 text-center text-sm text-neutral-500">
+      {text}
+    </div>
+  );
+}
+
 export default function App() {
   return (
-    <div className="mx-auto flex min-h-full max-w-3xl flex-col items-center justify-center gap-3 p-8 text-center">
-      <h1 className="text-3xl font-semibold text-[var(--color-accent)]">
-        👻 Ghost Project Hunter
-      </h1>
-      <p className="text-neutral-400">
-        Scaffold ready. 리더보드 UI는 3단계에서 구현됩니다.
-      </p>
-    </div>
+    <TokenGate>
+      <Leaderboard />
+    </TokenGate>
   );
 }
