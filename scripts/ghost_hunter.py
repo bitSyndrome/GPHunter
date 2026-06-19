@@ -461,6 +461,12 @@ def usage():
 
 
 def main():
+    # Windows consoles (cp949/cp1252) choke on ✓/👻 — force safe UTF-8 output.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     argv = sys.argv[1:]
     cmd = argv[0] if argv else ""
     rest = argv[1:]
