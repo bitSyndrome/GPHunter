@@ -3,8 +3,10 @@ dist/
 build/
 *.log
 *.sqlite
+*.sqlite-*
 *.sqlite-journal
 *.db
+/data/
 .env
 .env.local
 .DS_Store
