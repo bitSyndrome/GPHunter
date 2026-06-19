@@ -1,5 +1,7 @@
 # 👻 Ghost Project Hunter
 
+> **🌐 언어:** 한국어 · [English](README.en.md)
+
 > AI CLI 툴(Claude Code)로 만든 수많은 프로젝트 중 **잊혀가는 '유령 프로젝트'를
 > 게임 리더보드로 추적·관리**하는 멀티 디바이스 대시보드.
 
