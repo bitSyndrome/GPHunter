@@ -9,7 +9,7 @@
 #   scripts/dev.sh logs [api|web]         tail a service log
 #
 # Config via env or .env at repo root:
-#   PORT (api, default 8787), WEB_PORT (default 5173),
+#   PORT (api, default 8787), WEB_PORT (default 5273),
 #   GPH_DB_PATH, GPH_SEED_TOKEN
 set -euo pipefail
 
@@ -26,7 +26,7 @@ if [[ -f "$ROOT/.env" ]]; then
 fi
 
 API_PORT="${PORT:-8787}"
-WEB_PORT="${WEB_PORT:-5173}"
+WEB_PORT="${WEB_PORT:-5273}"
 
 pidfile() { echo "$RUN/$1.pid"; }
 logfile() { echo "$RUN/$1.log"; }

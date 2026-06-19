@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 
 const TOKEN = process.env.GPH_SEED_TOKEN ?? "demo-token";
-const URL = process.env.GPH_WEB_URL ?? "http://localhost:5173";
+const URL = process.env.GPH_WEB_URL ?? "http://localhost:5273";
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 900, height: 1000 } });

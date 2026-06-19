@@ -25,7 +25,7 @@ npm test               # shared 순수 로직 테스트
 ### 서버 실행/관리 (start/stop/restart)
 
 ```bash
-npm run start          # api(:8787) + web(:5173) 둘 다 백그라운드 기동
+npm run start          # api(:8787) + web(:5273) 둘 다 백그라운드 기동
 npm run status         # 실행 상태 확인
 npm run restart        # 재시작 (포트 충돌 없이 깔끔하게)
 npm run stop           # 둘 다 종료
@@ -50,3 +50,18 @@ ghost-hunter status                         # 설정 + 서버 상태 확인
 이후 Claude Code 세션을 열고 닫을 때마다 활동이 자동 보고됩니다. 서버가 꺼져
 있어도 이벤트는 outbox에 쌓였다가 다음 실행 때 자동 전송됩니다.
 수동 기록: `ghost-hunter log "프로젝트명" "작업 요약"`.
+
+### Node 없이 — 순수 셸 버전
+
+Node 글로벌 설치가 부담되면 `curl` + `git`만으로 동작하는 셸 에이전트를 쓸 수
+있습니다. 설정 디렉토리(`~/.config/ghost-hunter`)를 Node 버전과 공유하므로
+완전히 호환됩니다.
+
+```bash
+scripts/ghost-hunter.sh login https://my-server 토큰
+scripts/ghost-hunter.sh init      # ~/.claude/settings.json 에 Hook 주입 (jq 권장)
+scripts/ghost-hunter.sh status
+```
+
+JSON 파싱은 `jq` → `python3` → `sed` 순으로 가용한 것을 사용합니다. 훅은 Node
+버전과 동일하게 타임아웃·항상 exit 0·outbox 큐잉으로 Claude를 막지 않습니다.

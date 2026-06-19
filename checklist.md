@@ -104,6 +104,10 @@
 - [ ] 폴더 경로 복사 버튼 — 후순위(선택)
 - [x] 실제 브라우저 스크린샷 검증 (Playwright/chromium) — active/ghost/detail 3화면 확인
 - [x] dev 프로세스 관리 스크립트 (`scripts/dev.sh` start/stop/restart/status/logs)
+- [x] 웹 기본 포트 5173 → 5273 변경 (5173 타 서비스 충돌 회피, `WEB_PORT`로 override)
+- [x] 순수 셸 에이전트 (`scripts/ghost-hunter.sh`) — Node 없이 curl+git, Node 버전과 config 공유·키 동일
+- [x] 셸/Node 클라이언트 remote 키 정규화 일치 검증 (다기기 병합 보장)
+- [x] zod 스키마 null 허용(nullish) — 셸 클라이언트의 명시적 null 수용
 
 ---
 

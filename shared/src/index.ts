@@ -51,11 +51,12 @@ export const ProjectInputSchema = z.object({
    * local path key alongside the remote key). Lets the server merge a project
    * when a git remote is added later. Server treats key + alt_keys as aliases.
    */
-  alt_keys: z.array(z.string().min(1).max(512)).max(8).optional(),
+  alt_keys: z.array(z.string().min(1).max(512)).max(8).nullish(),
   name: z.string().min(1).max(200),
-  path: z.string().max(1024).optional(),
-  repo_url: z.string().max(512).optional(),
-  description: z.string().max(500).optional(),
+  // nullish: shell clients send explicit null for absent fields, JS clients omit.
+  path: z.string().max(1024).nullish(),
+  repo_url: z.string().max(512).nullish(),
+  description: z.string().max(500).nullish(),
 });
 export type ProjectInput = z.infer<typeof ProjectInputSchema>;
 
@@ -78,14 +79,14 @@ export type MaturitySignals = z.infer<typeof MaturitySignalsSchema>;
 
 export const EventSchema = z.object({
   device_id: z.string().min(1).max(128),
-  hostname: z.string().max(200).optional(),
+  hostname: z.string().max(200).nullish(),
   event_type: EventTypeSchema,
-  session_id: z.string().max(200).optional(),
-  ts: z.string().datetime().optional(), // ISO; server falls back to receipt time
+  session_id: z.string().max(200).nullish(),
+  ts: z.string().datetime().nullish(), // ISO; server falls back to receipt time
   project: ProjectInputSchema,
-  metrics: MetricsSchema.optional(),
-  maturity_signals: MaturitySignalsSchema.optional(),
-  summary: z.string().max(1000).optional(),
+  metrics: MetricsSchema.nullish(),
+  maturity_signals: MaturitySignalsSchema.nullish(),
+  summary: z.string().max(1000).nullish(),
 });
 export type EventPayload = z.infer<typeof EventSchema>;
 
