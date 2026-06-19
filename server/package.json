@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
+  "main": "./src/index.ts",
   "scripts": {
     "dev": "node --watch --experimental-strip-types src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
-    "start": "node dist/index.js",
-    "test": "node --test --experimental-strip-types src/**/*.test.ts"
+    "start": "node --experimental-strip-types src/index.ts",
+    "test": "node --test --experimental-strip-types 'src/**/*.test.ts'"
   },
   "dependencies": {
     "@gph/shared": "*",

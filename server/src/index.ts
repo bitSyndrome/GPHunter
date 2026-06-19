@@ -1,2 +1,12 @@
-// Phase 1 placeholder — replaced with the real Express app + SQLite next.
-console.log("[gph-server] scaffold ready (phase 1 will implement the API)");
+import { loadConfig } from "./config.ts";
+import { openDb } from "./db.ts";
+import { createApp } from "./app.ts";
+
+const config = loadConfig();
+const db = openDb(config.dbPath, config.seedToken);
+const app = createApp(db, config.corsOrigin);
+
+app.listen(config.port, () => {
+  console.log(`[gph-server] listening on http://localhost:${config.port}`);
+  console.log(`[gph-server] db: ${config.dbPath}`);
+});

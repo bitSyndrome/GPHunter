@@ -5,48 +5,50 @@
 
 ---
 
-## 0단계: 스캐폴딩 (0.5일)
+## 0단계: 스캐폴딩 (0.5일) ✅
 
-- [ ] 모노레포 구조 생성 (`/cli`, `/server`, `/web`)
-- [ ] 루트 워크스페이스 설정 (npm/pnpm workspaces)
-- [ ] 공통 이벤트 스키마 정의 (zod) — `POST /events` 페이로드 단일 소스
-- [ ] 공통 타입 패키지/디렉토리 (`/shared` 또는 `/packages/types`)
-- [ ] ESLint / Prettier / tsconfig 공통 설정
-- [ ] `.gitignore`, README 초안, git init
+- [x] 모노레포 구조 생성 (`/shared`, `/server`, `/cli`, `/web`)
+- [x] 루트 워크스페이스 설정 (npm workspaces)
+- [x] 공통 이벤트 스키마 정의 (zod) — `POST /events` 페이로드 단일 소스
+- [x] 공통 타입 패키지/디렉토리 (`@gph/shared`) + 순수 계산 로직 + 테스트 9건 통과
+- [x] Prettier / tsconfig 공통 설정 (`tsconfig.base.json`)
+- [x] `.gitignore`, README 초안, git init + 첫 커밋
 
 ---
 
-## 1단계: 백엔드 + DB (2일)
+## 1단계: 백엔드 + DB (2일) ✅
 
 ### DB / 모델
-- [ ] `better-sqlite3` 셋업 + 영속 경로 설정
-- [ ] 마이그레이션: `users`, `tokens`, `devices`
-- [ ] 마이그레이션: `projects` (`user_id`+`project_key` 유니크 → 다기기 병합)
-- [ ] 마이그레이션: `events` (turns / duration_sec / files_changed / summary)
-- [ ] (옵션) `daily_activity` 집계 캐시 테이블
+- [x] `better-sqlite3` 셋업 (WAL, FK) + 경로 설정 (`GPH_DB_PATH`)
+- [x] 마이그레이션: `users`, `tokens`, `devices`
+- [x] 마이그레이션: `projects` (`UNIQUE(user_id, project_key)` → 다기기 병합)
+- [x] 마이그레이션: `events` (turns / duration_sec / files_changed / summary)
+- [ ] (옵션, 보류) `daily_activity` 집계 캐시 — 현재 JS 집계로 충분
 
 ### 인증
-- [ ] Bearer 토큰 미들웨어 (`Authorization` → user 매핑)
-- [ ] MVP 시드 토큰 (환경변수) 생성
-- [ ] 디바이스 자동 등록 (첫 호출 시 `device_id` upsert, `last_seen_at` 갱신)
+- [x] Bearer 토큰 미들웨어 (`Authorization` → user 매핑, last_used_at 갱신)
+- [x] MVP 시드 토큰 (`GPH_SEED_TOKEN`) 자동 생성
+- [x] 디바이스 자동 등록 (첫 호출 시 `device_id` upsert, `last_seen_at` 갱신)
 
 ### API 엔드포인트
-- [ ] `POST /api/v1/events` — zod 검증 → project upsert(키 병합) → event append
-  - [ ] `project_key` 정규화 검증 / `total_sessions`·`total_turns`·`last_active_at` 갱신
-  - [ ] `maturity_signals` → `maturity_score` 환산 (README+20/test+25/CI+20/배포+15/tag+10/version+10)
-  - [ ] 응답: `{ project_id, ghost_tier, ghost_score }`
-- [ ] `GET /api/v1/projects?sort=ghost|active|momentum&archived=false`
-  - [ ] `ghost_tier` 계산 (fresh<3 / cooling 3–14 / ghost 14–30 / buried ≥30일)
-  - [ ] `ghost_score = days × log10(total_turns + 10)` (archived 제외)
-  - [ ] `momentum` = 최근 7일 활동 ÷ 자체 피크주 활동
-- [ ] `GET /api/v1/projects/:id` — 상세 + 일별 스파크라인
-- [ ] `PATCH /api/v1/projects/:id` — `archived` / `pinned` / `completion_pct` / `name` / `description`
-- [ ] `GET /api/v1/stats` — 총 프로젝트 / 유령 / 무덤 수
+- [x] `POST /api/v1/events` — zod 검증 → project upsert(키 병합) → event append
+  - [x] `total_sessions`·`total_turns`·`last_active_at(MAX)` 갱신
+  - [x] `maturity_signals` → `maturity_score` 환산 (shared 로직 재사용)
+  - [x] 응답: `{ project_id, ghost_tier, ghost_score }`
+- [x] `GET /api/v1/projects?sort=ghost|active|momentum&archived=false`
+  - [x] `ghost_tier` 계산 (fresh<3 / cooling 3–14 / ghost 14–30 / buried ≥30일)
+  - [x] `ghost_score = days × log10(total_turns + 10)` (archived 제외, ghost 탭은 tier≥ghost 필터)
+  - [x] `momentum` = 최근 7일 활동 ÷ 자체 피크 7일 윈도우 + pinned 우선 정렬
+- [x] `GET /api/v1/projects/:id` — 상세 + 일별 스파크라인 + 최근 요약
+- [x] `PATCH /api/v1/projects/:id` — `archived` / `pinned` / `completion_pct` / `name` / `description`
+- [x] `GET /api/v1/stats` — 총 프로젝트 / 활성 / 유령 / 무덤 수
+- [x] `GET /api/v1/health`
 
 ### 검증
-- [ ] rate limit + 입력 검증(zod) 에러 핸들링
-- [ ] 핵심 계산(ghost_score, tier, momentum, maturity) 단위 테스트
-- [ ] curl로 `POST /events` → `GET /projects` 왕복 확인
+- [x] 입력 검증(zod) + 에러 핸들링 (`/events`, `/projects`, patch)
+- [x] 핵심 계산 단위 테스트 (shared 9건) + API 통합 테스트 4건 (다기기 병합 포함)
+- [x] in-memory DB 라운드트립 검증 통과 / 타입체크 통과 / 서버 부팅 확인
+- [ ] rate limit — 4단계(배포 보안)에서 추가
 
 ---
 
