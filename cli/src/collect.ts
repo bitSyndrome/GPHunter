@@ -52,8 +52,18 @@ export interface ProjectIdentity {
  *  - local key: local:<host>:<abs path>  (machine-scoped, always present)
  *  - remote key: normalized git remote    (shared across machines, preferred)
  */
+/**
+ * Uppercase the Windows drive letter so `d:\foo` and `D:\foo` produce the same
+ * project key. Windows paths are case-insensitive, but `path.resolve` echoes the
+ * drive letter case of the cwd verbatim — two sessions in the same folder could
+ * otherwise split into duplicate projects. No-op for non-drive paths (POSIX).
+ */
+export function normalizeDriveLetter(p: string): string {
+  return p.replace(/^([a-z]):/, (_, d: string) => `${d.toUpperCase()}:`);
+}
+
 export function deriveProjectIdentity(cwd: string): ProjectIdentity {
-  const abs = path.resolve(cwd);
+  const abs = normalizeDriveLetter(path.resolve(cwd));
   const name = path.basename(abs);
   const localKey = `local:${os.hostname()}:${abs}`;
   const remote = git(abs, ["remote", "get-url", "origin"]);
