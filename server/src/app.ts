@@ -172,9 +172,11 @@ else                    { \$File = "ghost_hunter.py";  \$Runner = "python" }
 Write-Host "Downloading \$File from \$Server ..."
 Invoke-WebRequest -UseBasicParsing -Uri "\$Server/api/v1/agent/\$File" -OutFile \$Target
 
-# 'ghost-hunter' wrapper so it works from any terminal
+# 'ghost-hunter' wrapper so it works from any terminal.
+# Use %USERPROFILE% (expanded by cmd at runtime) so the file stays pure ASCII —
+# baking an absolute path with a non-ASCII username corrupts it under -Encoding ASCII.
 \$Cmd = Join-Path \$Bin "ghost-hunter.cmd"
-Set-Content -Path \$Cmd -Encoding ASCII -Value "@\$Runner ""\$Target"" %*"
+Set-Content -Path \$Cmd -Encoding ASCII -Value "@\$Runner ""%USERPROFILE%\\ghost-hunter\\\$File"" %*"
 
 # ensure \$Bin is on the user PATH
 \$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
