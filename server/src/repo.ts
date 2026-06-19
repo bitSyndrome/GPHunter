@@ -97,6 +97,36 @@ function isRemoteKey(key: string): boolean {
   return !key.startsWith("local:");
 }
 
+/**
+ * Uppercase a leading Windows drive letter (`d:\…` → `D:\…`). Windows paths are
+ * case-insensitive, but agents echo the cwd's drive-letter case verbatim, so the
+ * same folder opened as `d:\foo` vs `D:\foo` would split into two projects.
+ * No-op on POSIX paths. Done server-side so every agent — Python, Node, shell,
+ * any version — dedupes consistently without needing a client update.
+ */
+function normalizeDriveLetter(s: string): string {
+  return s.replace(/^([a-z]):/, (_m, d: string) => `${d.toUpperCase()}:`);
+}
+
+/** Normalize a `local:<host>:<abs path>` key; remote keys pass through. */
+function normalizeLocalKey(key: string): string {
+  return key.replace(
+    /^(local:[^:]*:)([a-z]):/,
+    (_m, head: string, d: string) => `${head}${d.toUpperCase()}:`,
+  );
+}
+
+/** Apply drive-letter normalization to every project identity on the payload. */
+function normalizeProjectKeys(payload: EventPayload): void {
+  payload.project.key = normalizeLocalKey(payload.project.key);
+  if (payload.project.alt_keys) {
+    payload.project.alt_keys = payload.project.alt_keys.map(normalizeLocalKey);
+  }
+  if (payload.project.path) {
+    payload.project.path = normalizeDriveLetter(payload.project.path);
+  }
+}
+
 export function ingestEvent(
   db: DB,
   userId: number,
@@ -115,6 +145,7 @@ export function ingestEvent(
   const maturity = payload.maturity_signals
     ? computeMaturityScore(payload.maturity_signals)
     : null;
+  normalizeProjectKeys(payload);
   const keys = candidateKeys(payload);
 
   const tx = db.transaction(() => {

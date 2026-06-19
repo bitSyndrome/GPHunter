@@ -93,6 +93,41 @@ test("merges same project_key across devices", async () => {
   server.close();
 });
 
+test("local keys differing only in Windows drive-letter case dedupe", async () => {
+  const { server, base } = startServer();
+  const ev = (key: string, turns: number) => ({
+    device_id: "winbox",
+    event_type: "session_end",
+    project: { key, name: "T-Mi", path: key.split(":").slice(2).join(":") },
+    metrics: { turns },
+  });
+
+  // Same folder, two drive-letter casings (e.g. `cd d:` vs launched as `D:\`).
+  for (const [key, turns] of [
+    ["local:winbox:d:\\proj\\T-Mi", 2],
+    ["local:winbox:D:\\proj\\T-Mi", 3],
+  ] as const) {
+    await fetch(`${base}/api/v1/events`, {
+      method: "POST",
+      headers: authed(),
+      body: JSON.stringify(ev(key, turns)),
+    });
+  }
+
+  const projects = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(projects.length, 1, "drive-letter casing must not split projects");
+  assert.equal(projects[0].total_turns, 5);
+  assert.equal(
+    projects[0].project_key,
+    "local:winbox:D:\\proj\\T-Mi",
+    "drive letter normalized to uppercase",
+  );
+
+  server.close();
+});
+
 test("adding a remote later merges into the existing local project", async () => {
   const { server, base } = startServer();
   const local = "local:laptop:/home/me/proj";
