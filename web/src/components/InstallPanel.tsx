@@ -39,6 +39,12 @@ export function InstallPanel({ onClose }: { onClose: () => void }) {
     `node ghost-hunter.cjs init`,
   ].join("\n");
 
+  const globalInstall = [
+    `curl -fsSL ${origin}/api/v1/install.sh | sh`,
+    `ghost-hunter login ${origin} <토큰>`,
+    `ghost-hunter init`,
+  ].join("\n");
+
   const shell = `curl -fsSL ${origin}/api/v1/install.sh | sh`;
 
   return (
@@ -69,14 +75,20 @@ export function InstallPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="mt-4 flex flex-col gap-4">
-          <CopyBlock title="🐍 Python (Windows 포함, 권장)" code={python} />
-          <CopyBlock title="⬢ Node (단일 파일)" code={node} />
-          <CopyBlock title="🐚 셸 한 줄 (macOS/Linux)" code={shell} />
+          <CopyBlock
+            title="🚀 전역 설치 (PATH 등록, 권장 · macOS/Linux)"
+            code={globalInstall}
+          />
+          <CopyBlock title="🐍 Python (Windows 포함)" code={python} />
+          <CopyBlock title="⬢ Node (단일 파일, 수동)" code={node} />
+          <CopyBlock title="🐚 셸 부트스트랩만" code={shell} />
         </div>
 
         <p className="mt-4 text-[11px] text-neutral-600">
-          설치 후 새 Claude Code 세션을 열고 닫으면 자동 수집됩니다. 기존 저장소는
-          `scan`으로 과거 커밋을 채울 수 있습니다.
+          전역 설치는 `~/.local/bin/ghost-hunter`에 깔립니다. Python으로 깔려면
+          `| AGENT=py sh`, 설치 위치 변경은 `| BIN=/usr/local/bin sh`. 설치 후 새
+          Claude Code 세션마다 자동 수집되고, 기존 저장소는 `ghost-hunter scan`으로
+          과거 커밋을 채울 수 있습니다.
         </p>
       </div>
     </div>

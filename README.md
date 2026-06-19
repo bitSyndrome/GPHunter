@@ -122,12 +122,13 @@ web:  http://localhost:5273   (LAN: http://192.168.0.142:5273)
 > 직접 호스팅하므로 다른 PC에서 `curl`로 받아 바로 실행할 수 있습니다:
 >
 > ```bash
-> # Python (Windows 포함)
-> curl -O http://<호스트>:8787/api/v1/agent/ghost_hunter.py
-> # Node 단일 파일
-> curl -O http://<호스트>:8787/api/v1/agent/ghost-hunter.cjs
-> # 셸 한 줄 부트스트랩
+> # 전역 설치 (~/.local/bin/ghost-hunter 로 설치, macOS/Linux)
 > curl -fsSL http://<호스트>:8787/api/v1/install.sh | sh
+> #   Python으로 설치: ... | AGENT=py sh   /   위치 변경: ... | BIN=/usr/local/bin sh
+>
+> # 또는 파일만 받아서 직접 실행
+> curl -O http://<호스트>:8787/api/v1/agent/ghost_hunter.py     # Python (Windows 포함)
+> curl -O http://<호스트>:8787/api/v1/agent/ghost-hunter.cjs    # Node 단일 파일
 > ```
 > (Node 단일 파일은 `npm run build:agent`로 미리 빌드되어야 서빙됩니다.)
 

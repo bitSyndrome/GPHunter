@@ -65,23 +65,40 @@ export function createApp(db: DB, opts: AppOptions): Express {
     });
   });
 
-  // One-line bootstrap: curl -fsSL <server>/api/v1/install.sh | sh
+  // One-line global installer: curl -fsSL <server>/api/v1/install.sh | sh
+  //   AGENT=node|py|sh (default node)   BIN=<dir> (default ~/.local/bin)
   app.get("/api/v1/install.sh", (req, res) => {
     const server = `${req.protocol}://${req.get("host")}`;
     res.type("text/x-shellscript").send(
       `#!/usr/bin/env sh
-# Ghost Project Hunter — agent installer
+# Ghost Project Hunter — global agent installer
 set -e
 SERVER="${server}"
-DEST="\${DEST:-ghost_hunter.py}"
-echo "Downloading agent from $SERVER ..."
-curl -fsSL "$SERVER/api/v1/agent/ghost_hunter.py" -o "$DEST"
-echo "✓ Saved to $DEST"
+AGENT="\${AGENT:-node}"            # node | py | sh
+BIN="\${BIN:-\$HOME/.local/bin}"
+case "\$AGENT" in
+  node) FILE=ghost-hunter.cjs ;;
+  py)   FILE=ghost_hunter.py ;;
+  sh)   FILE=ghost-hunter.sh ;;
+  *) echo "unknown AGENT '\$AGENT' (use node|py|sh)"; exit 1 ;;
+esac
+mkdir -p "\$BIN"
+echo "Downloading \$FILE from \$SERVER ..."
+if ! curl -fsSL "\$SERVER/api/v1/agent/\$FILE" -o "\$BIN/ghost-hunter"; then
+  echo "X Download failed. The Node bundle needs 'npm run build:agent' on the server."
+  echo "  Try Python:  curl -fsSL \$SERVER/api/v1/install.sh | AGENT=py sh"
+  exit 1
+fi
+chmod +x "\$BIN/ghost-hunter"
+echo "OK Installed to \$BIN/ghost-hunter"
+case ":\$PATH:" in
+  *":\$BIN:"*) : ;;
+  *) echo "!  \$BIN is not on PATH — add: export PATH=\$BIN:\\\$PATH" ;;
+esac
 echo ""
-echo "Next steps (need your API token):"
-echo "  python3 $DEST login $SERVER <TOKEN>"
-echo "  python3 $DEST init       # install Claude Code hooks"
-echo "  python3 $DEST scan       # (optional) backfill past git commits"
+echo "Next:"
+echo "  ghost-hunter login \$SERVER <TOKEN>"
+echo "  ghost-hunter init"
 `,
     );
   });

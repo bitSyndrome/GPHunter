@@ -305,7 +305,8 @@ test("serves agent scripts and install.sh without auth", async () => {
   assert.equal(sh.status, 200);
   const body = await sh.text();
   assert.match(body, /SERVER="http/);
-  assert.match(body, /agent\/ghost_hunter\.py/);
+  assert.match(body, /api\/v1\/agent\//);
+  assert.match(body, /ghost-hunter login/);
 
   server.close();
 });

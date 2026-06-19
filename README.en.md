@@ -126,9 +126,13 @@ interchangeable.
 > the agent scripts, so any machine can `curl` and run them:
 >
 > ```bash
+> # Global install (to ~/.local/bin/ghost-hunter, macOS/Linux)
+> curl -fsSL http://<host>:8787/api/v1/install.sh | sh
+> #   Python:  ... | AGENT=py sh     custom dir:  ... | BIN=/usr/local/bin sh
+>
+> # Or grab a file and run it directly
 > curl -O http://<host>:8787/api/v1/agent/ghost_hunter.py     # Python (incl. Windows)
 > curl -O http://<host>:8787/api/v1/agent/ghost-hunter.cjs    # Node single file
-> curl -fsSL http://<host>:8787/api/v1/install.sh | sh        # shell bootstrap
 > ```
 > (The Node single file must be pre-built via `npm run build:agent`.)
 
