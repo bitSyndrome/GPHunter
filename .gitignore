@@ -12,3 +12,8 @@ coverage/
 web/dist/
 .vite/
 cli/dist/
+.run/
+
+# screenshots / playwright artifacts
+shot-*.png
+web/shot-*.png

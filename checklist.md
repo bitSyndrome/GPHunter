@@ -102,7 +102,8 @@
 - [x] 데이터 폴링 (15s) + 토큰 게이트(localStorage)
 - [x] 검증: 빌드 통과(97 모듈) + 4개 등급 시드로 3개 정렬 모드 정확성 확인
 - [ ] 폴더 경로 복사 버튼 — 후순위(선택)
-- [ ] 실제 브라우저 스크린샷 — 로컬에 브라우저 자동화 없음(사용자가 `npm run dev:web`로 확인)
+- [x] 실제 브라우저 스크린샷 검증 (Playwright/chromium) — active/ghost/detail 3화면 확인
+- [x] dev 프로세스 관리 스크립트 (`scripts/dev.sh` start/stop/restart/status/logs)
 
 ---
 

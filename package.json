@@ -16,7 +16,12 @@
     "dev:web": "npm run dev -w web",
     "test": "npm run test -w shared",
     "format": "prettier --write .",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "start": "bash scripts/dev.sh start",
+    "stop": "bash scripts/dev.sh stop",
+    "restart": "bash scripts/dev.sh restart",
+    "status": "bash scripts/dev.sh status",
+    "logs": "bash scripts/dev.sh logs"
   },
   "devDependencies": {
     "prettier": "^3.3.3",
