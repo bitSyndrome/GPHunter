@@ -6,6 +6,8 @@ export interface Config {
   dbPath: string;
   seedToken: string;
   corsOrigin: string;
+  rateCapacity: number;
+  rateRefillPerSec: number;
 }
 
 export function loadConfig(): Config {
@@ -23,5 +25,7 @@ export function loadConfig(): Config {
       path.join(process.cwd(), "data", "gph.sqlite"),
     seedToken,
     corsOrigin: process.env.GPH_CORS_ORIGIN ?? "*",
+    rateCapacity: Number(process.env.GPH_RATE_CAPACITY ?? 60),
+    rateRefillPerSec: Number(process.env.GPH_RATE_REFILL ?? 1),
   };
 }

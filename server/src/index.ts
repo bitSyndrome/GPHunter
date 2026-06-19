@@ -4,7 +4,13 @@ import { createApp } from "./app.ts";
 
 const config = loadConfig();
 const db = openDb(config.dbPath, config.seedToken);
-const app = createApp(db, config.corsOrigin);
+const app = createApp(db, {
+  corsOrigin: config.corsOrigin,
+  rateLimit: {
+    capacity: config.rateCapacity,
+    refillPerSec: config.rateRefillPerSec,
+  },
+});
 
 app.listen(config.port, config.host, () => {
   console.log(

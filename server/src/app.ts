@@ -11,6 +11,7 @@ import {
 } from "@gph/shared";
 import type { DB } from "./db.ts";
 import { authMiddleware, type AuthedRequest } from "./auth.ts";
+import { rateLimit, type RateLimitOptions } from "./ratelimit.ts";
 import {
   ingestEvent,
   listProjects,
@@ -19,9 +20,15 @@ import {
   getStats,
 } from "./repo.ts";
 
-export function createApp(db: DB, corsOrigin: string): Express {
+export interface AppOptions {
+  corsOrigin: string;
+  rateLimit: RateLimitOptions;
+}
+
+export function createApp(db: DB, opts: AppOptions): Express {
   const app = express();
-  app.use(cors({ origin: corsOrigin }));
+  app.set("trust proxy", true); // honor X-Forwarded-For for client IP
+  app.use(cors({ origin: opts.corsOrigin }));
   app.use(express.json({ limit: "256kb" }));
 
   app.get("/api/v1/health", (_req, res) => {
@@ -31,8 +38,8 @@ export function createApp(db: DB, corsOrigin: string): Express {
   const api = express.Router();
   api.use(authMiddleware(db));
 
-  // Ingest a hook event.
-  api.post("/events", (req: AuthedRequest, res) => {
+  // Ingest a hook event (rate limited — main abuse vector).
+  api.post("/events", rateLimit(opts.rateLimit), (req: AuthedRequest, res) => {
     const parsed = EventSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json({ error: "invalid event", details: parsed.error.flatten() });

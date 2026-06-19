@@ -48,7 +48,8 @@
 - [x] 입력 검증(zod) + 에러 핸들링 (`/events`, `/projects`, patch)
 - [x] 핵심 계산 단위 테스트 (shared 9건) + API 통합 테스트 4건 (다기기 병합 포함)
 - [x] in-memory DB 라운드트립 검증 통과 / 타입체크 통과 / 서버 부팅 확인
-- [ ] rate limit — 4단계(배포 보안)에서 추가
+- [x] rate limit — 인메모리 토큰 버킷 (`/events`, 기본 60버스트·1/s, 429+Retry-After, 테스트 통과)
+- [x] `.env.example` — 전체 설정 항목 문서화
 
 ---
 

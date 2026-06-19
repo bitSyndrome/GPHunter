@@ -6,9 +6,9 @@ import { createApp } from "./app.ts";
 
 const TOKEN = "test-token";
 
-function startServer() {
+function startServer(rate = { capacity: 1000, refillPerSec: 1000 }) {
   const db = openDb(":memory:", TOKEN);
-  const app = createApp(db, "*");
+  const app = createApp(db, { corsOrigin: "*", rateLimit: rate });
   const server = app.listen(0);
   const port = (server.address() as AddressInfo).port;
   const base = `http://127.0.0.1:${port}`;
@@ -180,6 +180,32 @@ test("two pre-existing projects merge when a shared remote links them", async ()
   assert.equal(projects[0].total_turns, 6, "2 + 3 + 1");
   assert.equal(projects[0].device_count, 2);
 
+  server.close();
+});
+
+test("rate limits /events past the bucket capacity", async () => {
+  const { server, base } = startServer({ capacity: 3, refillPerSec: 0 });
+  const body = JSON.stringify({
+    device_id: "d",
+    event_type: "session_end",
+    project: { key: "k", name: "n" },
+    metrics: { turns: 1 },
+  });
+  const codes: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    const res = await fetch(`${base}/api/v1/events`, {
+      method: "POST",
+      headers: authed(),
+      body,
+    });
+    codes.push(res.status);
+    if (res.status === 429) {
+      assert.ok(res.headers.get("retry-after"), "sends Retry-After");
+    }
+  }
+  assert.deepEqual(codes.slice(0, 3), [200, 200, 200], "first 3 allowed");
+  assert.equal(codes[3], 429, "4th over capacity");
+  assert.equal(codes[4], 429);
   server.close();
 });
 
