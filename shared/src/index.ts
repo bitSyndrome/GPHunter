@@ -44,8 +44,14 @@ export const EventTypeSchema = z.enum(["session_start", "session_end"]);
 export type EventType = z.infer<typeof EventTypeSchema>;
 
 export const ProjectInputSchema = z.object({
-  /** Normalized stable identity, e.g. "github.com/user/repo" or "local:host:/path". */
+  /** Primary stable identity (remote preferred), e.g. "github.com/user/repo" or "local:host:/path". */
   key: z.string().min(1).max(512),
+  /**
+   * Additional identities the client can see for the same project (e.g. the
+   * local path key alongside the remote key). Lets the server merge a project
+   * when a git remote is added later. Server treats key + alt_keys as aliases.
+   */
+  alt_keys: z.array(z.string().min(1).max(512)).max(8).optional(),
   name: z.string().min(1).max(200),
   path: z.string().max(1024).optional(),
   repo_url: z.string().max(512).optional(),

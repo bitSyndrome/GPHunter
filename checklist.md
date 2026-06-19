@@ -52,31 +52,36 @@
 
 ---
 
-## 2단계: CLI Hook 에이전트 (2일)
+## 2단계: CLI Hook 에이전트 (2일) ✅
 
 ### 핵심 동작
-- [ ] `ghost-hunter-hook`: stdin JSON 파싱 (`session_id`/`transcript_path`/`cwd`/`hook_event_name`)
-- [ ] 프로젝트 키 생성: `git remote get-url origin` 정규화 → `github.com/<user>/<repo>`
-- [ ] 폴백 키: remote 없으면 `local:<hostname>:<abs-path>`
-- [ ] `transcript_path` JSONL tail 파싱 → 턴 수 + 마지막 작업 요약
-- [ ] `git diff --stat` → 변경 파일 수
-- [ ] maturity 신호 스캔 (README/test/CI/배포설정/tag/version)
-- [ ] 설정 로드: `~/.config/ghost-hunter/config.json` (서버 URL + 토큰)
-- [ ] `POST /api/v1/events` 전송 (Bearer)
+- [x] `ghost-hunter-hook`: stdin JSON 파싱 (`session_id`/`transcript_path`/`cwd`/`hook_event_name`)
+- [x] 프로젝트 키 생성: **로컬+원격 둘 다 전송** (`key` 원격 우선 + `alt_keys` 로컬)
+- [x] 원격 추가 시 별칭 병합 (서버 `project_aliases`) — 기록 보존
+- [x] `transcript_path` JSONL 파싱 → assistant 턴 수
+- [x] `git status --porcelain` → 변경 파일 수 (WIP 신호)
+- [x] maturity 신호 스캔 (README/test/CI/배포설정/tag/version)
+- [x] 설정 로드: `~/.config/ghost-hunter/config.json` (서버 URL + 토큰 + deviceId)
+- [x] `POST /api/v1/events` 전송 (Bearer)
 
 ### 장애 격리 (최우선) ⚠️
-- [ ] 타임아웃 2s
-- [ ] **모든 경로에서 exit 0** (실패 무음)
-- [ ] fire-and-forget / 비동기 — Claude 블로킹 금지
-- [ ] 네트워크 실패 시 `~/.config/ghost-hunter/outbox/` 큐잉
-- [ ] 다음 실행 시 outbox flush
+- [x] watchdog 타임아웃 1.8s (settings 2s 예산 내) + POST 1.5s abort
+- [x] **모든 경로에서 exit 0** (실패 무음, `.catch().finally(exit 0)`)
+- [x] 비동기 — git 호출 800ms 타임아웃, Claude 블로킹 금지
+- [x] 네트워크 실패 시 `~/.config/ghost-hunter/outbox/` 큐잉
+- [x] 다음 실행 시 outbox flush (첫 실패 시 중단해 예산 보호)
 
 ### 설치 / UX
-- [ ] `ghost-hunter init` — 서버 URL·토큰 입력 → 디바이스 등록
-- [ ] `~/.claude/settings.json` Hook 자동 주입 (`SessionStart`/`SessionEnd`, timeout 2)
-- [ ] `ghost-hunter login <server> <token>`
-- [ ] 수동 폴백: `ghost-hunter log "<project>" "<summary>"`
-- [ ] npm 글로벌 패키지로 배포 가능하게 `bin` 설정
+- [x] `ghost-hunter init` — 설정 저장 + Claude settings Hook 자동 주입 (idempotent)
+- [x] `~/.claude/settings.json` Hook 자동 주입 (`SessionStart`/`SessionEnd`, timeout 2)
+- [x] `ghost-hunter login <server> <token>` / `status` / `flush`
+- [x] 수동 폴백: `ghost-hunter log "<project>" "<summary>"`
+- [x] npm 글로벌 패키지 `bin` 설정 (`ghost-hunter`, `ghost-hunter-hook`) + `dist` emit
+
+### 검증
+- [x] CLI 단위 테스트 5건 (식별키/maturity/turns 파싱)
+- [x] 서버 병합 테스트 2건 (원격 나중 추가 / 두 프로젝트 병합)
+- [x] E2E 스모크: 훅 수집 → 조회 → 오프라인 큐 → flush 합산 통과
 
 ---
 

@@ -9,8 +9,12 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "node --experimental-strip-types src/cli.ts"
+    "dev": "node --experimental-strip-types src/cli.ts",
+    "test": "node --test --experimental-strip-types 'src/**/*.test.ts'"
   },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@gph/shared": "*"
   },

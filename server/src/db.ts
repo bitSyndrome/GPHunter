@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS projects (
   UNIQUE (user_id, project_key)
 );
 
+CREATE TABLE IF NOT EXISTS project_aliases (
+  user_id    INTEGER NOT NULL REFERENCES users(id),
+  alias_key  TEXT NOT NULL,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  PRIMARY KEY (user_id, alias_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_aliases_project ON project_aliases(project_id);
+
 CREATE TABLE IF NOT EXISTS events (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id    INTEGER NOT NULL REFERENCES projects(id),

@@ -31,9 +31,14 @@ Claude Code의 **Hook** 메커니즘을 이용. Hook은 이벤트 발생 시 std
   * `SessionEnd` → 세션 종료 시 요약 지표 전송(턴 수, 변경 파일 수, 소요 시간).
 * **수집 에이전트:** `ghost-hunter-hook` (Node 기반 글로벌 CLI 패키지). 동작:
   1. stdin JSON 파싱 → `cwd` 확보.
-  2. **프로젝트 식별 키 생성** (다기기 동기화 핵심):
-     - 1순위: `git remote get-url origin` 정규화 → `github.com/<user>/<repo>` 형태. → 노트북/데스크탑이 **같은 프로젝트로 병합**됨.
-     - 2순위(remote 없음): `local:<hostname>:<absolute-path>` (해당 기기 한정).
+  2. **프로젝트 식별 키 생성** (다기기 동기화 + 원격 추가 대응 핵심):
+     - 훅은 **로컬·원격 키를 모두** 전송 — `key`(대표, 원격 우선) + `alt_keys`(로컬 등).
+       - 로컬 키: `local:<hostname>:<absolute-path>` (항상 존재, 기기 한정).
+       - 원격 키: `git remote get-url origin` 정규화 → `github.com/<user>/<repo>` (있으면 대표).
+     - 서버는 `project_aliases` 테이블로 **어떤 별칭으로든 같은 프로젝트를 식별**.
+       - 노트북/데스크탑이 같은 원격 키 → 한 프로젝트로 병합.
+       - **나중에 원격을 추가**하면: 로컬 별칭으로 기존 프로젝트를 찾아 원격 키를 별칭으로 붙이고 대표키를 원격으로 승격(기록 유지).
+       - 여러 프로젝트가 매칭되면 자동 병합(events/aliases 재지정 + 합산 후 삭제).
   3. **지표 수집:** `transcript_path` JSONL을 tail 파싱하여 턴 수 / 마지막 작업 요약 추출, `git diff --stat`으로 변경 파일 수, 프로젝트 성숙도 신호 스캔(아래 2-3).
   4. 설정 파일(`~/.config/ghost-hunter/config.json`)의 서버 URL·토큰으로 `POST /api/v1/events`.
   5. **장애 격리:** 네트워크 실패 시 로컬 outbox(`~/.config/ghost-hunter/outbox/`)에 큐잉 후 다음 실행 때 flush. **어떤 경우에도 비-0 종료/지연으로 Claude를 막지 않음(타임아웃 2s, 항상 exit 0).**
@@ -185,14 +190,21 @@ tokens(token PK, user_id FK, created_at, last_used_at)
 -- 기기
 devices(id PK, user_id FK, hostname, created_at, last_seen_at)
 
--- 프로젝트 (user_id + project_key 유니크 → 다기기 병합)
+-- 프로젝트 (대표 키. 별칭은 project_aliases가 관리 → 다기기 병합 + 원격 추가 대응)
 projects(
   id PK, user_id FK,
-  project_key UNIQUE-per-user, name, description, repo_url,
+  project_key, name, description, repo_url, path,
   first_seen_at, last_active_at,
   total_sessions, total_turns,
   maturity_score, completion_pct NULLABLE,   -- 수동 우선
-  pinned BOOL, archived BOOL
+  pinned BOOL, archived BOOL,
+  UNIQUE(user_id, project_key)
+)
+
+-- 프로젝트 별칭 (로컬키·원격키 모두 한 프로젝트로 매핑)
+project_aliases(
+  user_id FK, alias_key, project_id FK,
+  PRIMARY KEY(user_id, alias_key)
 )
 
 -- 이벤트(활동 로그, 스파크라인/모멘텀 산출용)

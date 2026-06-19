@@ -11,3 +11,4 @@ build/
 coverage/
 web/dist/
 .vite/
+cli/dist/

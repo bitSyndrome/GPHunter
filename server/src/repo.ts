@@ -32,6 +32,70 @@ interface ProjectRow {
 
 /* ── Ingest ────────────────────────────────────────────────── */
 
+/** All identity keys carried by a payload (primary first, deduped). */
+function candidateKeys(payload: EventPayload): string[] {
+  return [...new Set([payload.project.key, ...(payload.project.alt_keys ?? [])])];
+}
+
+/** Project ids in this user's space matching any of the given keys. */
+function matchingProjectIds(db: DB, userId: number, keys: string[]): number[] {
+  if (keys.length === 0) return [];
+  const ph = keys.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `SELECT project_id AS id FROM project_aliases
+         WHERE user_id = ? AND alias_key IN (${ph})
+       UNION
+       SELECT id FROM projects
+         WHERE user_id = ? AND project_key IN (${ph})`,
+    )
+    .all(userId, ...keys, userId, ...keys) as { id: number }[];
+  return [...new Set(rows.map((r) => r.id))].sort((a, b) => a - b);
+}
+
+/** Fold loser projects into the survivor (oldest), preserving history. */
+function mergeProjects(db: DB, survivorId: number, loserIds: number[]): void {
+  for (const loser of loserIds) {
+    const l = db
+      .prepare("SELECT * FROM projects WHERE id = ?")
+      .get(loser) as ProjectRow;
+    db.prepare("UPDATE events SET project_id = ? WHERE project_id = ?").run(
+      survivorId,
+      loser,
+    );
+    db.prepare(
+      "UPDATE project_aliases SET project_id = ? WHERE project_id = ?",
+    ).run(survivorId, loser);
+    db.prepare(
+      `UPDATE projects SET
+         total_sessions = total_sessions + @s,
+         total_turns = total_turns + @t,
+         first_seen_at = MIN(first_seen_at, @first),
+         last_active_at = MAX(last_active_at, @last),
+         maturity_score = MAX(maturity_score, @mat),
+         completion_pct = COALESCE(completion_pct, @comp),
+         pinned = MAX(pinned, @pin),
+         repo_url = COALESCE(repo_url, @repo)
+       WHERE id = @id`,
+    ).run({
+      id: survivorId,
+      s: l.total_sessions,
+      t: l.total_turns,
+      first: l.first_seen_at,
+      last: l.last_active_at,
+      mat: l.maturity_score,
+      comp: l.completion_pct,
+      pin: l.pinned,
+      repo: l.repo_url,
+    });
+    db.prepare("DELETE FROM projects WHERE id = ?").run(loser);
+  }
+}
+
+function isRemoteKey(key: string): boolean {
+  return !key.startsWith("local:");
+}
+
 export function ingestEvent(
   db: DB,
   userId: number,
@@ -44,6 +108,7 @@ export function ingestEvent(
   const maturity = payload.maturity_signals
     ? computeMaturityScore(payload.maturity_signals)
     : null;
+  const keys = candidateKeys(payload);
 
   const tx = db.transaction(() => {
     // Device upsert.
@@ -58,15 +123,10 @@ export function ingestEvent(
       now: nowIso,
     });
 
-    // Project upsert keyed by (user_id, project_key).
-    const existing = db
-      .prepare(
-        "SELECT * FROM projects WHERE user_id = ? AND project_key = ?",
-      )
-      .get(userId, payload.project.key) as ProjectRow | undefined;
-
+    // Resolve project by any alias; merge if multiple matched.
+    const matches = matchingProjectIds(db, userId, keys);
     let projectId: number;
-    if (!existing) {
+    if (matches.length === 0) {
       const info = db
         .prepare(
           `INSERT INTO projects
@@ -88,9 +148,19 @@ export function ingestEvent(
         });
       projectId = Number(info.lastInsertRowid);
     } else {
-      projectId = existing.id;
+      projectId = matches[0];
+      if (matches.length > 1) mergeProjects(db, projectId, matches.slice(1));
+
+      const current = db
+        .prepare("SELECT project_key FROM projects WHERE id = ?")
+        .get(projectId) as { project_key: string };
+      // Promote a local primary key to the remote one when a remote appears.
+      const promote =
+        !isRemoteKey(current.project_key) && isRemoteKey(payload.project.key);
+
       db.prepare(
         `UPDATE projects SET
+           project_key = @primaryKey,
            name = @name,
            description = COALESCE(@desc, description),
            repo_url = COALESCE(@repo, repo_url),
@@ -102,6 +172,7 @@ export function ingestEvent(
          WHERE id = @id`,
       ).run({
         id: projectId,
+        primaryKey: promote ? payload.project.key : current.project_key,
         name: payload.project.name,
         desc: payload.project.description ?? null,
         repo: payload.project.repo_url ?? null,
@@ -112,6 +183,14 @@ export function ingestEvent(
         maturity,
       });
     }
+
+    // Register every candidate key as an alias of this project.
+    const upsertAlias = db.prepare(
+      `INSERT INTO project_aliases (user_id, alias_key, project_id)
+       VALUES (?, ?, ?)
+       ON CONFLICT(user_id, alias_key) DO UPDATE SET project_id = excluded.project_id`,
+    );
+    for (const k of keys) upsertAlias.run(userId, k, projectId);
 
     db.prepare(
       `INSERT INTO events

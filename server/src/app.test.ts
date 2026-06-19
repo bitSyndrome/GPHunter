@@ -89,6 +89,100 @@ test("merges same project_key across devices", async () => {
   server.close();
 });
 
+test("adding a remote later merges into the existing local project", async () => {
+  const { server, base } = startServer();
+  const local = "local:laptop:/home/me/proj";
+  const remote = "github.com/me/proj";
+
+  // 1) Local-only project.
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "laptop",
+      event_type: "session_end",
+      project: { key: local, name: "proj" },
+      metrics: { turns: 2 },
+    }),
+  });
+
+  // 2) Remote added -> hook now sends remote primary + local alt_key.
+  const res = await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "laptop",
+      event_type: "session_end",
+      project: { key: remote, alt_keys: [local], name: "proj" },
+      metrics: { turns: 3 },
+    }),
+  });
+  assert.equal(res.status, 200);
+
+  const projects = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(projects.length, 1, "history preserved as one project");
+  assert.equal(projects[0].total_turns, 5);
+  assert.equal(projects[0].project_key, remote, "primary promoted to remote");
+
+  server.close();
+});
+
+test("two pre-existing projects merge when a shared remote links them", async () => {
+  const { server, base } = startServer();
+  const local = "local:laptop:/home/me/proj";
+  const remote = "github.com/me/proj";
+
+  // Project A: local-only (e.g. created before remote existed).
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "laptop",
+      event_type: "session_end",
+      project: { key: local, name: "proj" },
+      metrics: { turns: 2 },
+    }),
+  });
+  // Project B: remote-only (e.g. desktop cloned the repo).
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "desktop",
+      event_type: "session_end",
+      project: { key: remote, name: "proj" },
+      metrics: { turns: 3 },
+    }),
+  });
+  let projects = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(projects.length, 2, "distinct until linked");
+
+  // Laptop adds the remote -> payload carries both keys -> merge.
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "laptop",
+      event_type: "session_end",
+      project: { key: remote, alt_keys: [local], name: "proj" },
+      metrics: { turns: 1 },
+    }),
+  });
+
+  projects = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(projects.length, 1, "merged into one");
+  assert.equal(projects[0].total_turns, 6, "2 + 3 + 1");
+  assert.equal(projects[0].device_count, 2);
+
+  server.close();
+});
+
 test("patch archives a project and removes it from default list", async () => {
   const { server, base } = startServer();
   await fetch(`${base}/api/v1/events`, {
