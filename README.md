@@ -33,8 +33,22 @@ npm run logs api       # api 로그 tail (또는 logs web)
 ```
 
 개별 제어: `npm run start -- web`, `npm run restart -- api` 등.
-환경설정은 루트 `.env`(`PORT`, `WEB_PORT`, `GPH_DB_PATH`, `GPH_SEED_TOKEN`)로.
+환경설정은 루트 `.env`(`PORT`, `WEB_PORT`, `GPH_HOST`, `GPH_DB_PATH`, `GPH_SEED_TOKEN`)로.
 PID/로그는 `.run/`에 저장됩니다.
+
+### 외부 PC에서 접속
+
+api·web 모두 `0.0.0.0`에 바인딩되어 같은 네트워크의 다른 PC에서 접속할 수
+있습니다. `npm run status`가 LAN 주소를 출력합니다:
+
+```
+web:  http://localhost:5273   (LAN: http://192.168.0.142:5273)
+```
+
+외부 PC 브라우저에서 `http://<호스트IP>:5273` 로 대시보드 접속, 외부 PC의
+CLI는 `ghost-hunter login http://<호스트IP>:8787 <토큰>` 으로 연결합니다.
+접속이 안 되면 호스트 **방화벽**에서 5273/8787 TCP 인바운드를 허용하세요
+(예: `sudo ufw allow 5273/tcp 8787/tcp`).
 
 > 최우선 제약: **Hook은 Claude 동작을 절대 막지 않는다** (타임아웃 2s · 항상 exit 0 · 실패 시 outbox 큐잉).
 

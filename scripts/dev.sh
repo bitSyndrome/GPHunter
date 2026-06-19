@@ -31,6 +31,14 @@ WEB_PORT="${WEB_PORT:-5273}"
 pidfile() { echo "$RUN/$1.pid"; }
 logfile() { echo "$RUN/$1.log"; }
 
+# Best-effort primary LAN IP for showing external URLs.
+lan_ip() {
+  local ip
+  ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  [ -n "$ip" ] || ip="$(ipconfig getifaddr en0 2>/dev/null)"
+  echo "${ip:-localhost}"
+}
+
 is_running() {
   local pf
   pf="$(pidfile "$1")"
@@ -52,9 +60,9 @@ start_one() {
       ;;
     web)
       ( cd "$ROOT" && exec npm run dev -w web -- \
-        --port "$WEB_PORT" --strictPort ) >"$(logfile web)" 2>&1 &
+        --host --port "$WEB_PORT" --strictPort ) >"$(logfile web)" 2>&1 &
       echo $! >"$(pidfile web)"
-      echo "✓ web started on :$WEB_PORT (pid $!)"
+      echo "✓ web started on :$WEB_PORT (pid $!), LAN: http://$(lan_ip):$WEB_PORT"
       ;;
     *) echo "unknown service: $svc" >&2; exit 1 ;;
   esac
@@ -100,8 +108,8 @@ case "$cmd" in
   status)
     echo "Ghost Project Hunter — services"
     status_one api; status_one web
-    echo "  api:  http://localhost:$API_PORT"
-    echo "  web:  http://localhost:$WEB_PORT"
+    echo "  api:  http://localhost:$API_PORT   (LAN: http://$(lan_ip):$API_PORT)"
+    echo "  web:  http://localhost:$WEB_PORT   (LAN: http://$(lan_ip):$WEB_PORT)"
     ;;
   logs)
     [[ "$target" == "all" ]] && target="api"

@@ -6,7 +6,9 @@ const config = loadConfig();
 const db = openDb(config.dbPath, config.seedToken);
 const app = createApp(db, config.corsOrigin);
 
-app.listen(config.port, () => {
-  console.log(`[gph-server] listening on http://localhost:${config.port}`);
+app.listen(config.port, config.host, () => {
+  console.log(
+    `[gph-server] listening on http://${config.host}:${config.port}`,
+  );
   console.log(`[gph-server] db: ${config.dbPath}`);
 });

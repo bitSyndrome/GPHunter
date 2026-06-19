@@ -1,6 +1,7 @@
 import path from "node:path";
 
 export interface Config {
+  host: string;
   port: number;
   dbPath: string;
   seedToken: string;
@@ -15,6 +16,7 @@ export function loadConfig(): Config {
     );
   }
   return {
+    host: process.env.GPH_HOST ?? "0.0.0.0",
     port: Number(process.env.PORT ?? 8787),
     dbPath:
       process.env.GPH_DB_PATH ??
