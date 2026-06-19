@@ -183,6 +183,28 @@ test("two pre-existing projects merge when a shared remote links them", async ()
   server.close();
 });
 
+test("projects include a 30-day contribution heatmap", async () => {
+  const { server, base } = startServer();
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "d",
+      event_type: "session_end",
+      project: { key: "k", name: "n" },
+      metrics: { turns: 7 },
+    }),
+  });
+  const [p] = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(p.heatmap.length, 30, "30 days");
+  // Today's bucket (last entry) reflects the 7 turns just logged.
+  assert.equal(p.heatmap[29].value, 7);
+  assert.equal(p.heatmap[0].value, 0, "older days are zero-filled");
+  server.close();
+});
+
 test("rate limits /events past the bucket capacity", async () => {
   const { server, base } = startServer({ capacity: 3, refillPerSec: 0 });
   const body = JSON.stringify({

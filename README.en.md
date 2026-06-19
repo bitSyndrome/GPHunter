@@ -21,6 +21,8 @@ which are dangerously abandoned — ranked.
   agent are provided.)
 - **Ghost leaderboard** — three sorts: 🏆 Most Active / 👻 Most Haunted /
   🔥 Momentum.
+- **Contribution heatmap** — a GitHub-style last-30-days grid on every card; the
+  more you work (turns) in a day, the darker the cell.
 - **Investment-weighted ghost score** — a long-loved-but-dropped project ranks
   as a more dangerous ghost than a throwaway. (`days_idle × log10(turns + 10)`)
 - **Multi-device sync** — laptop and desktop working the same git repo **merge
@@ -174,6 +176,8 @@ scripts/ghost-hunter.sh log "project-name" "what you did"
     (0–100%).
   - **Maturity** — README/tests/CI/deploy-config/tags/version heuristic (0–100%).
     A manual completion value overrides it.
+- **Contribution heatmap** — a last-30-days grid (week columns × weekday rows)
+  on each card; shaded in 5 levels by daily turns (GitHub-style).
 - **Actions** — hover a card for 📌 pin / 🗄 archive; click the title for details
   (sparkline, recent summary, manual completion).
 

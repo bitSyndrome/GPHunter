@@ -109,6 +109,7 @@
 - [x] 순수 셸 에이전트 (`scripts/ghost-hunter.sh`) — Node 없이 curl+git, Node 버전과 config 공유·키 동일
 - [x] 셸/Node 클라이언트 remote 키 정규화 일치 검증 (다기기 병합 보장)
 - [x] zod 스키마 null 허용(nullish) — 셸 클라이언트의 명시적 null 수용
+- [x] 기여도 히트맵 — 각 카드에 최근 30일 GitHub 잔디밭 (일별 턴 기준 5단계), 서버 일별 집계 + 테스트
 
 ---
 

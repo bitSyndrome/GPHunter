@@ -4,6 +4,7 @@ import {
   computeMaturityScore,
   computeMomentum,
   daysBetween,
+  HEATMAP_DAYS,
   MS_PER_DAY,
   type EventPayload,
   type Project,
@@ -217,14 +218,29 @@ export function ingestEvent(
   return tx();
 }
 
-/* ── Momentum (recent vs peak 7-day activity) ──────────────── */
+/* ── Daily activity → momentum + contribution heatmap ──────── */
 
-interface MomentumData {
+interface DailyMetrics {
   recent7d: number;
   peak7d: number;
+  heatmap: { day: string; value: number }[]; // last HEATMAP_DAYS, oldest→newest
 }
 
-function momentumMap(db: DB, userId: number, nowMs: number): Map<number, MomentumData> {
+/** UTC date strings (YYYY-MM-DD) for the last n days, oldest → newest. */
+function lastNDates(nowMs: number, n: number): string[] {
+  const out: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    out.push(new Date(nowMs - i * MS_PER_DAY).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+/** Per-project daily turn totals → momentum and heatmap, in one query. */
+function dailyMetricsMap(
+  db: DB,
+  userId: number,
+  nowMs: number,
+): Map<number, DailyMetrics> {
   const rows = db
     .prepare(
       `SELECT e.project_id AS pid, date(e.ts) AS day, SUM(e.turns) AS turns
@@ -234,16 +250,23 @@ function momentumMap(db: DB, userId: number, nowMs: number): Map<number, Momentu
     )
     .all(userId) as { pid: number; day: string; turns: number }[];
 
-  const byProject = new Map<number, { dayMs: number; turns: number }[]>();
+  const byProject = new Map<number, Map<string, number>>();
   for (const r of rows) {
-    const list = byProject.get(r.pid) ?? [];
-    list.push({ dayMs: Date.parse(r.day), turns: r.turns });
-    byProject.set(r.pid, list);
+    const m = byProject.get(r.pid) ?? new Map<string, number>();
+    m.set(r.day, r.turns);
+    byProject.set(r.pid, m);
   }
 
-  const out = new Map<number, MomentumData>();
+  const dates = lastNDates(nowMs, HEATMAP_DAYS);
   const recentThreshold = nowMs - 7 * MS_PER_DAY;
-  for (const [pid, days] of byProject) {
+  const out = new Map<number, DailyMetrics>();
+
+  for (const [pid, dayMap] of byProject) {
+    const days = [...dayMap.entries()].map(([day, turns]) => ({
+      dayMs: Date.parse(day),
+      turns,
+    }));
+
     let recent7d = 0;
     for (const d of days) if (d.dayMs >= recentThreshold) recent7d += d.turns;
 
@@ -257,9 +280,16 @@ function momentumMap(db: DB, userId: number, nowMs: number): Map<number, Momentu
       }
       if (sum > peak7d) peak7d = sum;
     }
-    out.set(pid, { recent7d, peak7d });
+
+    const heatmap = dates.map((day) => ({ day, value: dayMap.get(day) ?? 0 }));
+    out.set(pid, { recent7d, peak7d, heatmap });
   }
   return out;
+}
+
+/** Zero-filled heatmap for projects with no activity in the window. */
+function emptyHeatmap(nowMs: number): { day: string; value: number }[] {
+  return lastNDates(nowMs, HEATMAP_DAYS).map((day) => ({ day, value: 0 }));
 }
 
 function deviceCountMap(db: DB, userId: number): Map<number, number> {
@@ -277,7 +307,7 @@ function deviceCountMap(db: DB, userId: number): Map<number, number> {
 function toView(
   row: ProjectRow,
   nowMs: number,
-  momentum: MomentumData | undefined,
+  daily: DailyMetrics | undefined,
   deviceCount: number,
 ): Project {
   const days = daysBetween(Date.parse(row.last_active_at), nowMs);
@@ -299,7 +329,8 @@ function toView(
     days_since_active: Math.round(days * 10) / 10,
     ghost_tier: computeGhostTier(days),
     ghost_score: Math.round(computeGhostScore(days, row.total_turns) * 100) / 100,
-    momentum: computeMomentum(momentum?.recent7d ?? 0, momentum?.peak7d ?? 0),
+    momentum: computeMomentum(daily?.recent7d ?? 0, daily?.peak7d ?? 0),
+    heatmap: daily?.heatmap ?? emptyHeatmap(nowMs),
   };
 }
 
@@ -315,15 +346,15 @@ export function listProjects(
   const rows = db
     .prepare("SELECT * FROM projects WHERE user_id = ?")
     .all(userId) as ProjectRow[];
-  const mom = momentumMap(db, userId, nowMs);
+  const daily = dailyMetricsMap(db, userId, nowMs);
   const devs = deviceCountMap(db, userId);
 
   let views = rows.map((r) =>
-    toView(r, nowMs, mom.get(r.id), devs.get(r.id) ?? 0),
+    toView(r, nowMs, daily.get(r.id), devs.get(r.id) ?? 0),
   );
   if (!includeArchived) views = views.filter((v) => !v.archived);
 
-  const momRecent = (id: number) => mom.get(id)?.recent7d ?? 0;
+  const momRecent = (id: number) => daily.get(id)?.recent7d ?? 0;
   if (sort === "ghost") {
     views = views.filter(
       (v) => v.ghost_tier === "ghost" || v.ghost_tier === "buried",
@@ -360,7 +391,7 @@ export function getProject(
     .get(id, userId) as ProjectRow | undefined;
   if (!row) return null;
 
-  const mom = momentumMap(db, userId, nowMs).get(id);
+  const daily = dailyMetricsMap(db, userId, nowMs).get(id);
   const devs = deviceCountMap(db, userId).get(id) ?? 0;
   const activity = db
     .prepare(
@@ -377,7 +408,7 @@ export function getProject(
     .get(id) as { summary: string } | undefined;
 
   return {
-    ...toView(row, nowMs, mom, devs),
+    ...toView(row, nowMs, daily, devs),
     activity,
     recent_summary: recent?.summary ?? null,
   };
@@ -423,7 +454,7 @@ export function patchProject(
   return toView(
     row,
     nowMs,
-    momentumMap(db, userId, nowMs).get(id),
+    dailyMetricsMap(db, userId, nowMs).get(id),
     deviceCountMap(db, userId).get(id) ?? 0,
   );
 }

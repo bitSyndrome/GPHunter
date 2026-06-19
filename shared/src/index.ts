@@ -124,8 +124,22 @@ export const ProjectSchema = z.object({
   ghost_tier: z.enum(GHOST_TIERS),
   ghost_score: z.number(),
   momentum: z.number(), // 0..100
+  // last-N-days contribution heatmap (oldest -> newest), value = turns that day
+  heatmap: z.array(z.object({ day: z.string(), value: z.number() })),
 });
 export type Project = z.infer<typeof ProjectSchema>;
+
+/** Days shown in the per-project contribution heatmap. */
+export const HEATMAP_DAYS = 30;
+
+/** Bucket a daily contribution value into a 0..4 intensity level (GitHub-style). */
+export function heatmapLevel(value: number): 0 | 1 | 2 | 3 | 4 {
+  if (value <= 0) return 0;
+  if (value <= 2) return 1;
+  if (value <= 5) return 2;
+  if (value <= 9) return 3;
+  return 4;
+}
 
 export const ProjectPatchSchema = z
   .object({
