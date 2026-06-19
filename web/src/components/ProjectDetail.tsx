@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useProjectDetail, usePatchProject } from "../api.ts";
 import { tierStyle, relativeDays } from "../format.ts";
+import { Icon } from "./Icon.tsx";
 
 function Sparkline({ data }: { data: { day: string; turns: number }[] }) {
   if (data.length === 0) {
@@ -54,9 +55,10 @@ export function ProjectDetail({
               </div>
               <button
                 onClick={onClose}
-                className="text-neutral-500 hover:text-neutral-200"
+                className="flex text-neutral-500 hover:text-neutral-200"
+                aria-label="닫기"
               >
-                ✕
+                <Icon name="close" size={20} />
               </button>
             </div>
 

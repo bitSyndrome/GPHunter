@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { getToken, setToken } from "../api.ts";
+import { Icon } from "./Icon.tsx";
 
 export function TokenGate({ children }: { children: ReactNode }) {
   const [token, setLocal] = useState(getToken());
@@ -9,8 +10,9 @@ export function TokenGate({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex min-h-full flex-col items-center justify-center gap-4 p-8">
-      <h1 className="text-2xl font-semibold text-[var(--color-accent)]">
-        👻 Ghost Project Hunter
+      <h1 className="flex items-center gap-2 text-2xl font-semibold text-[var(--color-accent)]">
+        <Icon name="radar" />
+        Ghost Project Hunter
       </h1>
       <p className="text-sm text-neutral-400">접속 토큰을 입력하세요.</p>
       <div className="flex gap-2">

@@ -1,20 +1,33 @@
 import { useState } from "react";
+import { Icon } from "./Icon.tsx";
 
-function CopyBlock({ title, code }: { title: string; code: string }) {
+function CopyBlock({
+  title,
+  icon,
+  code,
+}: {
+  title: string;
+  icon: string;
+  code: string;
+}) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-neutral-300">{title}</span>
+        <span className="flex items-center gap-1.5 text-xs font-medium text-neutral-300">
+          <Icon name={icon} size={16} className="text-neutral-400" />
+          {title}
+        </span>
         <button
-          className="text-[11px] text-neutral-400 hover:text-[var(--color-accent)]"
+          className="flex items-center gap-1 text-[11px] text-neutral-400 hover:text-[var(--color-accent)]"
           onClick={() => {
             navigator.clipboard?.writeText(code);
             setCopied(true);
             setTimeout(() => setCopied(false), 1200);
           }}
         >
-          {copied ? "복사됨 ✓" : "복사"}
+          <Icon name={copied ? "check" : "content_copy"} size={13} />
+          {copied ? "복사됨" : "복사"}
         </button>
       </div>
       <pre className="overflow-x-auto rounded-lg bg-neutral-900 p-3 text-xs leading-relaxed text-neutral-200">
@@ -74,21 +87,27 @@ export function InstallPanel({ onClose }: { onClose: () => void }) {
           </div>
           <button
             onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-200"
+            className="flex text-neutral-500 hover:text-neutral-200"
+            aria-label="닫기"
           >
-            ✕
+            <Icon name="close" size={20} />
           </button>
         </div>
 
         <div className="mt-4 flex flex-col gap-4">
           <CopyBlock
-            title="🚀 전역 설치 (PATH 등록, 권장 · macOS/Linux)"
+            icon="rocket_launch"
+            title="전역 설치 (PATH 등록, 권장 · macOS/Linux)"
             code={globalInstall}
           />
-          <CopyBlock title="🪟 Windows (PowerShell, 전역 설치)" code={windows} />
-          <CopyBlock title="🐍 Python (수동)" code={python} />
-          <CopyBlock title="⬢ Node (단일 파일, 수동)" code={node} />
-          <CopyBlock title="🐚 셸 부트스트랩만" code={shell} />
+          <CopyBlock
+            icon="window"
+            title="Windows (PowerShell, 전역 설치)"
+            code={windows}
+          />
+          <CopyBlock icon="code" title="Python (수동)" code={python} />
+          <CopyBlock icon="hexagon" title="Node (단일 파일, 수동)" code={node} />
+          <CopyBlock icon="terminal" title="셸 부트스트랩만" code={shell} />
         </div>
 
         <p className="mt-4 text-[11px] text-neutral-600">

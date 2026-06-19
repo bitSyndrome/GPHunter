@@ -1,26 +1,25 @@
-import { GHOST_TIER_LABELS, type GhostTier } from "@gph/shared";
+import type { GhostTier } from "@gph/shared";
 
 export interface TierStyle {
+  /** Short, emoji-free label (icon carries the visual). */
   label: string;
+  /** Material Symbols icon name for the tier. */
+  icon: string;
   /** Text/accent color for the tier. */
   color: string;
   /** Dim the whole card (buried). */
   dim: boolean;
 }
 
-const TIER_COLORS: Record<GhostTier, string> = {
-  fresh: "#7ee787", // alive green
-  cooling: "#a8c7fa", // mystic blue (accent)
-  ghost: "#c2e7ff", // ghost cyan
-  buried: "#6b7076", // faded gray
+const TIER_META: Record<GhostTier, Omit<TierStyle, "dim">> = {
+  fresh: { label: "생생함", icon: "local_fire_department", color: "#7ee787" },
+  cooling: { label: "식는 중", icon: "ac_unit", color: "#a8c7fa" },
+  ghost: { label: "유령화", icon: "blur_on", color: "#c2e7ff" },
+  buried: { label: "무덤", icon: "block", color: "#6b7076" },
 };
 
 export function tierStyle(tier: GhostTier): TierStyle {
-  return {
-    label: GHOST_TIER_LABELS[tier],
-    color: TIER_COLORS[tier],
-    dim: tier === "buried",
-  };
+  return { ...TIER_META[tier], dim: tier === "buried" };
 }
 
 export function relativeDays(days: number): string {

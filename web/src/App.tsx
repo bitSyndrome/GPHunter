@@ -7,6 +7,7 @@ import { SortTabs } from "./components/SortTabs.tsx";
 import { ProjectRow } from "./components/ProjectRow.tsx";
 import { ProjectDetail } from "./components/ProjectDetail.tsx";
 import { InstallPanel } from "./components/InstallPanel.tsx";
+import { Icon } from "./components/Icon.tsx";
 
 function Leaderboard() {
   const [sort, setSort] = useState<ProjectSort>("active");
@@ -19,15 +20,17 @@ function Leaderboard() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-4 p-4 sm:p-8">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-[var(--color-accent)]">
-          👻 Ghost Project Hunter
+        <h1 className="flex items-center gap-2 text-2xl font-semibold text-[var(--color-accent)]">
+          <Icon name="radar" />
+          Ghost Project Hunter
         </h1>
         <div className="flex items-center gap-3 text-xs">
           <button
             onClick={() => setShowInstall(true)}
-            className="rounded-lg bg-neutral-800 px-3 py-1.5 text-neutral-200 hover:bg-neutral-700"
+            className="flex items-center gap-1.5 rounded-lg bg-neutral-800 px-3 py-1.5 text-neutral-200 hover:bg-neutral-700"
           >
-            📥 에이전트 설치
+            <Icon name="download" size={16} />
+            에이전트 설치
           </button>
           <button
             onClick={() => {
