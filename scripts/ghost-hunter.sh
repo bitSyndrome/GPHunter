@@ -209,6 +209,64 @@ cmd_log() {
   if post_event "$payload"; then echo "✓ Logged \"${1:-cwd}\""; else echo "✗ Server unreachable"; exit 1; fi
 }
 
+cmd_scan() {
+  [ -f "$CONFIG_FILE" ] || { echo "Not configured." >&2; exit 1; }
+  local days=365 name="" cwd="$PWD"
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --days) days="$2"; shift 2 ;;
+      --name) name="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  local server token; server="$(cfg serverUrl)"; token="$(cfg token)"
+  # Compute project identity + maturity once.
+  local keys primary local_key repo defname maturity alt repojson
+  keys="$(project_keys "$cwd")"
+  primary="$(printf '%s' "$keys" | cut -f1)"
+  local_key="$(printf '%s' "$keys" | cut -f2)"
+  repo="$(printf '%s' "$keys" | cut -f3)"
+  defname="$(printf '%s' "$keys" | cut -f4)"
+  [ -n "$name" ] || name="$defname"
+  maturity="$(scan_maturity "$cwd")"
+  alt="[]"; [ -n "$local_key" ] && alt="[$(json_str "$local_key")]"
+  repojson="null"; [ -n "$repo" ] && repojson="$(json_str "$repo")"
+
+  local devjson hostjson namejson keyjson pathjson
+  devjson="$(json_str "$(cfg deviceId)")"; hostjson="$(json_str "$(cfg hostname)")"
+  namejson="$(json_str "$name")"; keyjson="$(json_str "$primary")"; pathjson="$(json_str "$cwd")"
+
+  # Commit counts per day.
+  local counts; counts="$(git -C "$cwd" log --since="$days days ago" \
+    --date=short --pretty=%cd 2>/dev/null | sort | uniq -c)"
+  [ -n "$counts" ] || { echo "No commits found (not a git repo, or none in range)." >&2; exit 1; }
+
+  local events="" total=0 day count
+  while read -r count day; do
+    [ -n "$day" ] || continue
+    total=$((total + count))
+    local ev
+    ev="$(printf '{"device_id":%s,"hostname":%s,"event_type":"session_end","session_id":"scan:%s","ts":"%sT12:00:00Z","project":{"key":%s,"alt_keys":%s,"name":%s,"path":%s,"repo_url":%s},"metrics":{"turns":%s,"duration_sec":0,"files_changed":0},"maturity_signals":%s,"summary":"%s commit(s) (scan)"}' \
+      "$devjson" "$hostjson" "$day" "$day" "$keyjson" "$alt" "$namejson" "$pathjson" "$repojson" "$count" "$maturity" "$count")"
+    events="$events${events:+,}$ev"
+  done <<EOF
+$counts
+EOF
+
+  local body resp
+  body="{\"events\":[$events]}"
+  resp="$(curl -sS --max-time 30 -X POST "$server/api/v1/events/bulk" \
+    -H "authorization: Bearer $token" -H "content-type: application/json" \
+    -d "$body" 2>/dev/null)"
+  if printf '%s' "$resp" | grep -q '"ingested"'; then
+    echo "✓ Scanned \"$name\": $total commit(s) over ${days}d → $resp"
+  else
+    echo "✗ Scan failed (server unreachable or rejected): $resp" >&2
+    exit 1
+  fi
+}
+
 flush_outbox() {
   local max="${1:-1000}" n=0 f
   [ -d "$OUTBOX" ] || { echo 0; return; }
@@ -239,7 +297,8 @@ case "${1:-}" in
   init)   shift; cmd_init "$@" ;;
   hook)   shift; cmd_hook "$@" ;;
   log)    shift; cmd_log "$@" ;;
+  scan)   shift; cmd_scan "$@" ;;
   flush)  shift; cmd_flush "$@" ;;
   status) shift; cmd_status "$@" ;;
-  *) echo "usage: ghost-hunter.sh {login|init|hook|log|flush|status}" >&2; exit 1 ;;
+  *) echo "usage: ghost-hunter.sh {login|init|hook|log|scan|flush|status}" >&2; exit 1 ;;
 esac

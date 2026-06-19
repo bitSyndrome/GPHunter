@@ -4,18 +4,38 @@ import path from "node:path";
 import os from "node:os";
 import { normalizeRepoUrl, type MaturitySignals } from "@gph/shared";
 
-/** Run a git command quickly; return null on any failure (never throws). */
-function git(cwd: string, args: string[]): string | null {
+/** Run a git command; return null on any failure (never throws). */
+function git(cwd: string, args: string[], timeout = 800): string | null {
   try {
     return execFileSync("git", args, {
       cwd,
-      timeout: 800,
+      timeout,
+      maxBuffer: 16 * 1024 * 1024,
       stdio: ["ignore", "pipe", "ignore"],
       encoding: "utf8",
     }).trim();
   } catch {
     return null;
   }
+}
+
+/** Commit counts per day (YYYY-MM-DD) over the last `sinceDays` days. */
+export function commitsByDay(
+  cwd: string,
+  sinceDays: number,
+): Map<string, number> {
+  const out = git(
+    cwd,
+    ["log", `--since=${sinceDays} days ago`, "--date=short", "--pretty=%cd"],
+    10_000,
+  );
+  const map = new Map<string, number>();
+  if (!out) return map;
+  for (const line of out.split("\n")) {
+    const day = line.trim();
+    if (day) map.set(day, (map.get(day) ?? 0) + 1);
+  }
+  return map;
 }
 
 export interface ProjectIdentity {

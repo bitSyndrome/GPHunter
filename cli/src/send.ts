@@ -31,6 +31,32 @@ export async function postEvent(
   }
 }
 
+/** POST many events at once (scan backfill). Longer timeout than a hook. */
+export async function postBulk(
+  cfg: CliConfig,
+  events: EventPayload[],
+): Promise<{ ingested: number; skipped: number } | null> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 30_000);
+  try {
+    const res = await fetch(`${cfg.serverUrl}/api/v1/events/bulk`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${cfg.token}`,
+      },
+      body: JSON.stringify({ events }),
+      signal: ac.signal,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { ingested: number; skipped: number };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Persist a payload to the outbox for a later flush. */
 export function enqueue(payload: EventPayload): void {
   try {

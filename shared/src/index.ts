@@ -97,6 +97,19 @@ export const EventResponseSchema = z.object({
 });
 export type EventResponse = z.infer<typeof EventResponseSchema>;
 
+/** Bulk ingest (used by `scan` to backfill historical commits). */
+export const BulkEventSchema = z.object({
+  events: z.array(EventSchema).min(1).max(2000),
+});
+export type BulkEventPayload = z.infer<typeof BulkEventSchema>;
+
+export const BulkEventResponseSchema = z.object({
+  ingested: z.number().int(),
+  skipped: z.number().int(),
+  project_ids: z.array(z.number().int()),
+});
+export type BulkEventResponse = z.infer<typeof BulkEventResponseSchema>;
+
 /* ── Project read model (GET /api/v1/projects) ─────────────── */
 
 export const ProjectSortSchema = z

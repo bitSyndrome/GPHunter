@@ -205,6 +205,62 @@ test("projects include a 30-day contribution heatmap", async () => {
   server.close();
 });
 
+test("bulk ingest backfills and is idempotent by session_id", async () => {
+  const { server, base } = startServer();
+  const mkEvents = () => ({
+    events: [
+      {
+        device_id: "d",
+        event_type: "session_end",
+        session_id: "scan:2026-06-01",
+        ts: "2026-06-01T12:00:00Z",
+        project: { key: "github.com/me/r", name: "r" },
+        metrics: { turns: 3 },
+      },
+      {
+        device_id: "d",
+        event_type: "session_end",
+        session_id: "scan:2026-06-02",
+        ts: "2026-06-02T12:00:00Z",
+        project: { key: "github.com/me/r", name: "r" },
+        metrics: { turns: 5 },
+      },
+    ],
+  });
+
+  const first = await (
+    await fetch(`${base}/api/v1/events/bulk`, {
+      method: "POST",
+      headers: authed(),
+      body: JSON.stringify(mkEvents()),
+    })
+  ).json();
+  assert.equal(first.ingested, 2);
+  assert.equal(first.skipped, 0);
+
+  let [p] = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(p.total_turns, 8, "3 + 5 backfilled");
+
+  // Re-run the same scan -> all skipped, no double count.
+  const second = await (
+    await fetch(`${base}/api/v1/events/bulk`, {
+      method: "POST",
+      headers: authed(),
+      body: JSON.stringify(mkEvents()),
+    })
+  ).json();
+  assert.equal(second.ingested, 0);
+  assert.equal(second.skipped, 2);
+
+  [p] = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(p.total_turns, 8, "still 8 after re-scan");
+  server.close();
+});
+
 test("rate limits /events past the bucket capacity", async () => {
   const { server, base } = startServer({ capacity: 3, refillPerSec: 0 });
   const body = JSON.stringify({

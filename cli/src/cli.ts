@@ -9,8 +9,12 @@ import {
   configPath,
   outboxDir,
 } from "./config.ts";
-import { deriveProjectIdentity, scanMaturity } from "./collect.ts";
-import { postEvent, flushOutbox } from "./send.ts";
+import {
+  deriveProjectIdentity,
+  scanMaturity,
+  commitsByDay,
+} from "./collect.ts";
+import { postEvent, postBulk, enqueue, flushOutbox } from "./send.ts";
 import type { EventPayload } from "@gph/shared";
 
 const HOOK_COMMAND = "ghost-hunter-hook";
@@ -135,6 +139,56 @@ async function cmdLog(args: string[]): Promise<void> {
   process.exit(ok ? 0 : 1);
 }
 
+async function cmdScan(args: string[]): Promise<void> {
+  const cfg = requireConfig();
+  const flags = parseFlags(args);
+  const days = Number(flags.days ?? 365);
+  const cwd = process.cwd();
+  const identity = deriveProjectIdentity(cwd);
+  const name = flags.name || identity.name;
+
+  const byDay = commitsByDay(cwd, days);
+  if (byDay.size === 0) {
+    console.error("No commits found (not a git repo, or none in range).");
+    process.exit(1);
+  }
+
+  const maturity = scanMaturity(cwd);
+  const events: EventPayload[] = [...byDay.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([day, count]) => ({
+      device_id: cfg.deviceId,
+      hostname: cfg.hostname,
+      event_type: "session_end",
+      session_id: `scan:${day}`, // idempotency key (re-run safe)
+      ts: `${day}T12:00:00Z`,
+      project: {
+        key: identity.key,
+        alt_keys: identity.altKeys,
+        name,
+        path: identity.path,
+        repo_url: identity.repo_url,
+      },
+      metrics: { turns: count, duration_sec: 0, files_changed: 0 },
+      maturity_signals: maturity,
+      summary: `${count} commit(s) (scan)`,
+    }));
+
+  const totalCommits = [...byDay.values()].reduce((a, b) => a + b, 0);
+  const result = await postBulk(cfg, events);
+  if (result) {
+    console.log(
+      `✓ Scanned "${name}": ${byDay.size} active days, ${totalCommits} commits over ${days}d ` +
+        `(${result.ingested} new, ${result.skipped} already recorded)`,
+    );
+  } else {
+    for (const ev of events) enqueue(ev);
+    console.log(
+      `• Server unreachable — queued ${events.length} day(s) to outbox (run 'ghost-hunter flush' later)`,
+    );
+  }
+}
+
 async function cmdFlush(): Promise<void> {
   const cfg = requireConfig();
   const n = await flushOutbox(cfg, 1000);
@@ -172,6 +226,7 @@ Usage:
   ghost-hunter login <serverUrl> <token>   Save server + token for this device
   ghost-hunter init [--server u --token t] Install Claude Code hooks
   ghost-hunter log "<project>" "<summary>" Manually log activity from cwd
+  ghost-hunter scan [--days N] [--name X]  Backfill past git commits as activity
   ghost-hunter flush                       Send queued (offline) events
   ghost-hunter status                      Show config + server health`);
 }
@@ -184,7 +239,9 @@ const run =
       ? cmdInit(rest)
       : cmd === "log"
         ? cmdLog(rest)
-        : cmd === "flush"
+        : cmd === "scan"
+          ? cmdScan(rest)
+          : cmd === "flush"
           ? cmdFlush()
           : cmd === "status"
             ? cmdStatus()

@@ -231,9 +231,14 @@ login <serverUrl> <token>   서버 + 토큰 저장 (기기별)
 init                        Claude Code Hook 설치
 hook                        (Claude가 호출 — stdin으로 이벤트 수신)
 log "<project>" "<summary>" 수동 활동 기록
+scan [--days N] [--name X]  과거 git 커밋을 기여도로 백필 (기본 365일)
 flush                       오프라인 큐 전송
 status                      설정 + 서버 상태
 ```
+
+> **기존 프로젝트 백필**: 이미 커밋이 쌓인 저장소에서 `ghost-hunter scan`을 실행하면
+> git 히스토리의 일별 커밋 수가 기여도 히트맵에 채워집니다. 같은 날짜는 `scan:<날짜>`
+> 키로 중복 제거되어 **여러 번 실행해도 안전**합니다.
 
 ---
 

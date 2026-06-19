@@ -239,9 +239,14 @@ login <serverUrl> <token>   save server + token (per device)
 init                        install Claude Code Hooks
 hook                        (called by Claude — reads events from stdin)
 log "<project>" "<summary>" manual activity log
+scan [--days N] [--name X]  backfill past git commits as activity (default 365d)
 flush                       send queued offline events
 status                      config + server health
 ```
+
+> **Backfill existing projects**: run `ghost-hunter scan` in a repo that already
+> has commits to fill the contribution heatmap from git history. Each day is keyed
+> by `scan:<date>`, so re-running is **safe** (no double counting).
 
 ---
 

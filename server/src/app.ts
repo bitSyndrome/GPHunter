@@ -3,6 +3,8 @@ import cors from "cors";
 import {
   EventSchema,
   EventResponseSchema,
+  BulkEventSchema,
+  BulkEventResponseSchema,
   ProjectPatchSchema,
   ProjectSortSchema,
   computeGhostScore,
@@ -52,6 +54,31 @@ export function createApp(db: DB, opts: AppOptions): Express {
         project_id: result.project_id,
         ghost_tier: computeGhostTier(days),
         ghost_score: Math.round(computeGhostScore(days, result.total_turns) * 100) / 100,
+      }),
+    );
+  });
+
+  // Bulk ingest (scan backfill). Rate-limited as a single call.
+  api.post("/events/bulk", rateLimit(opts.rateLimit), (req: AuthedRequest, res) => {
+    const parsed = BulkEventSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid bulk", details: parsed.error.flatten() });
+      return;
+    }
+    let ingested = 0;
+    let skipped = 0;
+    const ids = new Set<number>();
+    for (const ev of parsed.data.events) {
+      const r = ingestEvent(db, req.userId!, ev);
+      ids.add(r.project_id);
+      if (r.skipped) skipped++;
+      else ingested++;
+    }
+    res.json(
+      BulkEventResponseSchema.parse({
+        ingested,
+        skipped,
+        project_ids: [...ids],
       }),
     );
   });

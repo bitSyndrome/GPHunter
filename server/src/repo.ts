@@ -101,7 +101,12 @@ export function ingestEvent(
   db: DB,
   userId: number,
   payload: EventPayload,
-): { project_id: number; last_active_at: string; total_turns: number } {
+): {
+  project_id: number;
+  last_active_at: string;
+  total_turns: number;
+  skipped?: boolean;
+} {
   const nowIso = new Date().toISOString();
   const ts = payload.ts ?? nowIso;
   const turns = payload.metrics?.turns ?? 0;
@@ -126,6 +131,25 @@ export function ingestEvent(
 
     // Resolve project by any alias; merge if multiple matched.
     const matches = matchingProjectIds(db, userId, keys);
+
+    // Idempotency: skip a duplicate event (same project + session_id).
+    // Lets `scan` be re-run safely — backfilled days won't double-count.
+    if (payload.session_id && matches.length === 1) {
+      const dup = db
+        .prepare(
+          "SELECT 1 FROM events WHERE project_id = ? AND session_id = ? LIMIT 1",
+        )
+        .get(matches[0], payload.session_id);
+      if (dup) {
+        const row = db
+          .prepare(
+            "SELECT last_active_at, total_turns FROM projects WHERE id = ?",
+          )
+          .get(matches[0]) as { last_active_at: string; total_turns: number };
+        return { project_id: matches[0], skipped: true, ...row };
+      }
+    }
+
     let projectId: number;
     if (matches.length === 0) {
       const info = db
