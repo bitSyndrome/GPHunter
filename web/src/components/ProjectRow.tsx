@@ -71,16 +71,6 @@ export function ProjectRow({
         </div>
       </div>
 
-      <div className="mt-3 flex items-end justify-between gap-4 border-t border-neutral-800 pt-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-[10px] text-neutral-500">최근 30일 기여도</span>
-          <Heatmap data={project.heatmap} />
-        </div>
-        <span className="text-right text-[10px] text-neutral-600">
-          더 많이 작업할수록 칸이 진해집니다
-        </span>
-      </div>
-
       <div className="mt-3 flex items-center justify-between border-t border-neutral-800 pt-2 text-xs text-neutral-500">
         <span>
           {project.total_sessions} 세션 · {project.total_turns} 턴 · 유령점수{" "}
@@ -106,6 +96,14 @@ export function ProjectRow({
           >
             {project.archived ? "복원" : "🗄 아카이브"}
           </button>
+        </div>
+      </div>
+
+      {/* Contribution heatmap — single full-width row at the very bottom. */}
+      <div className="mt-3 flex items-center gap-2">
+        <span className="shrink-0 text-[10px] text-neutral-600">최근 30일</span>
+        <div className="flex-1">
+          <Heatmap data={project.heatmap} />
         </div>
       </div>
     </div>
