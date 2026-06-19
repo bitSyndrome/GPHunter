@@ -133,7 +133,7 @@ ghost-hunter init                                  # inject Claude Code Hooks
 ghost-hunter status                                # verify connection
 ```
 
-### Method B — pure shell (no Node required)
+### Method B — pure shell (no Node required, macOS/Linux)
 
 Works with just `curl` + `git`, and embeds an **absolute path** in the Hook so no
 PATH setup is needed (more robust under fnm/nvm version switching).
@@ -143,6 +143,21 @@ scripts/ghost-hunter.sh login http://localhost:8787 <token>
 scripts/ghost-hunter.sh init     # merges into settings.json if jq is available
 scripts/ghost-hunter.sh status
 ```
+
+### Method C — Python (cross-platform, incl. Windows)
+
+Python 3 standard library only (no extra install); needs just `git`.
+**Recommended on Windows.** The Hook embeds the absolute interpreter + script
+paths, so no PATH setup is needed.
+
+```bash
+python scripts/ghost_hunter.py login http://localhost:8787 <token>
+python scripts/ghost_hunter.py init      # inject Hooks into ~/.claude/settings.json
+python scripts/ghost_hunter.py status
+```
+
+> All three agents (Node / shell / Python) share the same config dir
+> (`~/.config/ghost-hunter`) and project-key rules, so they interoperate freely.
 
 > After setup, every Claude Code session you open and close reports activity
 > automatically. Even if the server is down, events queue in the outbox and are
