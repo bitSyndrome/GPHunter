@@ -7,6 +7,7 @@ import { SortTabs } from "./components/SortTabs.tsx";
 import { ProjectRow } from "./components/ProjectRow.tsx";
 import { ProjectDetail } from "./components/ProjectDetail.tsx";
 import { InstallPanel } from "./components/InstallPanel.tsx";
+import { NotificationPanel } from "./components/NotificationPanel.tsx";
 import { Icon } from "./components/Icon.tsx";
 
 function Leaderboard() {
@@ -14,6 +15,7 @@ function Leaderboard() {
   const [showArchived, setShowArchived] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [showInstall, setShowInstall] = useState(false);
+  const [showNotify, setShowNotify] = useState(false);
   const { data: projects, isLoading, error } = useProjects(sort, showArchived);
   const { data: stats } = useStats();
 
@@ -25,6 +27,13 @@ function Leaderboard() {
           Ghost Project Hunter
         </h1>
         <div className="flex items-center gap-3 text-xs">
+          <button
+            onClick={() => setShowNotify(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-neutral-800 px-3 py-1.5 text-neutral-200 hover:bg-neutral-700"
+          >
+            <Icon name="notifications" size={16} />
+            알림 설정
+          </button>
           <button
             onClick={() => setShowInstall(true)}
             className="flex items-center gap-1.5 rounded-lg bg-neutral-800 px-3 py-1.5 text-neutral-200 hover:bg-neutral-700"
@@ -79,6 +88,7 @@ function Leaderboard() {
         <ProjectDetail id={openId} onClose={() => setOpenId(null)} />
       )}
       {showInstall && <InstallPanel onClose={() => setShowInstall(false)} />}
+      {showNotify && <NotificationPanel onClose={() => setShowNotify(false)} />}
     </div>
   );
 }

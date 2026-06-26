@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import { migrateCanonicalKeys } from "./repo.ts";
 
 export type DB = Database.Database;
 
@@ -42,6 +43,12 @@ CREATE TABLE IF NOT EXISTS projects (
   completion_pct INTEGER,
   pinned         INTEGER NOT NULL DEFAULT 0,
   archived       INTEGER NOT NULL DEFAULT 0,
+  epitaph        TEXT,
+  retired_at     TEXT,
+  ai_summary     TEXT,
+  ai_next_step   TEXT,
+  ai_model       TEXT,
+  summarized_at  TEXT,
   UNIQUE (user_id, project_key)
 );
 
@@ -70,6 +77,14 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS idx_events_project ON events(project_id);
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
+
+CREATE TABLE IF NOT EXISTS notification_config (
+  user_id      INTEGER PRIMARY KEY REFERENCES users(id),
+  webhook_url  TEXT NOT NULL,
+  kind         TEXT NOT NULL,            -- 'slack' | 'discord'
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  last_sent_at TEXT
+);
 `;
 
 /** Open (or create) the database, run migrations, and seed the default user/token. */
@@ -81,8 +96,28 @@ export function openDb(dbPath: string, seedToken: string): DB {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
+  addMissingColumns(db);
   seed(db, seedToken);
+  migrateCanonicalKeys(db); // backfill: collapse keys split under older rules
   return db;
+}
+
+/** Additive column migrations for DBs created before a column existed. */
+function addMissingColumns(db: DB): void {
+  const cols = new Set(
+    (db.prepare("PRAGMA table_info(projects)").all() as { name: string }[]).map(
+      (c) => c.name,
+    ),
+  );
+  const add = (name: string) => {
+    if (!cols.has(name)) db.exec(`ALTER TABLE projects ADD COLUMN ${name} TEXT`);
+  };
+  add("epitaph");
+  add("retired_at");
+  add("ai_summary");
+  add("ai_next_step");
+  add("ai_model");
+  add("summarized_at");
 }
 
 function seed(db: DB, seedToken: string): void {

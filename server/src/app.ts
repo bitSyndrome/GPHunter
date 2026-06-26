@@ -9,6 +9,8 @@ import {
   BulkEventResponseSchema,
   ProjectPatchSchema,
   ProjectSortSchema,
+  NotificationConfigInputSchema,
+  detectNotifyKind,
   computeGhostScore,
   computeGhostTier,
   daysBetween,
@@ -22,12 +24,22 @@ import {
   getProject,
   patchProject,
   getStats,
+  summarizeInput,
+  storeSummary,
+  getNotificationConfig,
+  putNotificationConfig,
+  deleteNotificationConfig,
+  markDigestSent,
 } from "./repo.ts";
+import { isLLMEnabled, summarizeProject } from "./llm.ts";
+import { buildDigest, sendDigest } from "./notify.ts";
+import type { LLMConfig } from "./config.ts";
 
 export interface AppOptions {
   corsOrigin: string;
   rateLimit: RateLimitOptions;
   scriptsDir: string;
+  llm?: LLMConfig;
 }
 
 // Agent scripts downloadable without auth (they contain no secrets).
@@ -231,8 +243,112 @@ Write-Host "  ghost-hunter init"
     res.json(updated);
   });
 
+  // AI memory-aid: generate a "what was I doing / next step" summary on demand.
+  api.post("/projects/:id/summarize", async (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      res.status(400).json({ error: "bad id" });
+      return;
+    }
+    if (!opts.llm || !isLLMEnabled(opts.llm)) {
+      res.status(503).json({
+        error: "AI summary not configured",
+        hint: "Set GPH_LLM_API_KEY (and optionally GPH_LLM_BASE_URL / GPH_LLM_MODEL).",
+      });
+      return;
+    }
+    const input = summarizeInput(db, req.userId!, id);
+    if (!input) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    try {
+      const result = await summarizeProject(opts.llm, input);
+      const updated = storeSummary(db, req.userId!, id, opts.llm.model, result);
+      if (!updated) {
+        res.status(404).json({ error: "not found" });
+        return;
+      }
+      res.json(updated);
+    } catch (err) {
+      res.status(502).json({
+        error: "summary generation failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+  });
+
   api.get("/stats", (req: AuthedRequest, res) => {
     res.json(getStats(db, req.userId!));
+  });
+
+  // ── Notification webhook (Slack/Discord digest) ───────────────────────────
+  api.get("/notifications", (req: AuthedRequest, res) => {
+    res.json(getNotificationConfig(db, req.userId!));
+  });
+
+  api.put("/notifications", (req: AuthedRequest, res) => {
+    const parsed = NotificationConfigInputSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: "invalid config" });
+      return;
+    }
+    const kind = detectNotifyKind(parsed.data.webhook_url);
+    if (!kind) {
+      res.status(400).json({
+        error: "unrecognized webhook",
+        hint: "Slack(hooks.slack.com) 또는 Discord(discord.com/api/webhooks) URL이어야 합니다.",
+      });
+      return;
+    }
+    res.json(
+      putNotificationConfig(
+        db,
+        req.userId!,
+        parsed.data.webhook_url,
+        kind,
+        parsed.data.enabled,
+      ),
+    );
+  });
+
+  api.delete("/notifications", (req: AuthedRequest, res) => {
+    deleteNotificationConfig(db, req.userId!);
+    res.json({ ok: true });
+  });
+
+  // Send a digest right now — to a URL in the body (preview before saving) or,
+  // if omitted, to the saved config. Powers the "테스트 전송" button.
+  api.post("/notifications/test", async (req: AuthedRequest, res) => {
+    const bodyUrl =
+      typeof req.body?.webhook_url === "string" ? req.body.webhook_url : null;
+    const saved = getNotificationConfig(db, req.userId!);
+    const url = bodyUrl ?? saved?.webhook_url ?? null;
+    if (!url) {
+      res.status(400).json({ error: "no webhook configured" });
+      return;
+    }
+    const kind = detectNotifyKind(url);
+    if (!kind) {
+      res.status(400).json({ error: "unrecognized webhook" });
+      return;
+    }
+    const digest = buildDigest(db, req.userId!) ?? {
+      title: "👻 Ghost Project Hunter",
+      lines: ["테스트 알림입니다. 아직 수집된 프로젝트가 없습니다."],
+    };
+    try {
+      await sendDigest(kind, url, digest);
+      if (saved && saved.webhook_url === url) {
+        markDigestSent(db, req.userId!, new Date().toISOString());
+      }
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(502).json({
+        error: "send failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
   });
 
   app.use("/api/v1", api);

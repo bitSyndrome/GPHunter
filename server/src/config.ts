@@ -1,5 +1,17 @@
 import path from "node:path";
 
+/**
+ * LLM provider for the AI memory-aid (Phase 3). Provider-agnostic: any
+ * OpenAI-compatible `/chat/completions` endpoint works — Anthropic Claude,
+ * OpenAI, OpenRouter, local Ollama/LM Studio — by pointing baseUrl + model at it.
+ * Disabled (feature off) whenever apiKey is empty, keeping setup trivial.
+ */
+export interface LLMConfig {
+  baseUrl: string;
+  apiKey: string | null;
+  model: string;
+}
+
 export interface Config {
   host: string;
   port: number;
@@ -9,6 +21,7 @@ export interface Config {
   rateCapacity: number;
   rateRefillPerSec: number;
   scriptsDir: string;
+  llm: LLMConfig;
 }
 
 export function loadConfig(): Config {
@@ -32,5 +45,12 @@ export function loadConfig(): Config {
     scriptsDir:
       process.env.GPH_SCRIPTS_DIR ??
       path.resolve(import.meta.dirname, "..", "..", "scripts"),
+    llm: {
+      // Defaults target Anthropic's OpenAI-compatible endpoint; override any of
+      // these to use OpenAI, OpenRouter, a local model, etc.
+      baseUrl: process.env.GPH_LLM_BASE_URL ?? "https://api.anthropic.com/v1",
+      apiKey: process.env.GPH_LLM_API_KEY || null,
+      model: process.env.GPH_LLM_MODEL ?? "claude-haiku-4-5",
+    },
   };
 }

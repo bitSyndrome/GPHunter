@@ -3,7 +3,13 @@ import {
   useMutation,
   useQueryClient,
 } from "@tanstack/react-query";
-import type { Project, ProjectPatch, ProjectSort, Stats } from "@gph/shared";
+import type {
+  NotificationConfig,
+  Project,
+  ProjectPatch,
+  ProjectSort,
+  Stats,
+} from "@gph/shared";
 
 const TOKEN_KEY = "gph_token";
 
@@ -63,6 +69,31 @@ export function useProjectDetail(id: number | null) {
   });
 }
 
+/** Generate (or refresh) the AI memory-aid summary for a project. */
+export function useSummarize() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/v1/projects/${id}/summarize`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${getToken()}`,
+        },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.hint || body.detail || body.error || `HTTP ${res.status}`);
+      }
+      return body as Project;
+    },
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["project", id] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+}
+
 export function usePatchProject() {
   const qc = useQueryClient();
   return useMutation({
@@ -74,6 +105,58 @@ export function usePatchProject() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects"] });
       qc.invalidateQueries({ queryKey: ["stats"] });
+    },
+  });
+}
+
+/* ── Notifications ─────────────────────────────────────────── */
+
+export function useNotificationConfig() {
+  return useQuery({
+    queryKey: ["notifications"],
+    queryFn: () => api<NotificationConfig | null>("/notifications"),
+  });
+}
+
+export function useSaveNotification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { webhook_url: string; enabled: boolean }) =>
+      api<NotificationConfig>("/notifications", {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useDeleteNotification() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api<{ ok: true }>("/notifications", { method: "DELETE" }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+/** Send a digest now (to the entered URL, before saving). Throws with detail. */
+export function useTestNotification() {
+  return useMutation({
+    mutationFn: async (webhook_url: string) => {
+      const res = await fetch("/api/v1/notifications/test", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({ webhook_url }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.hint || body.detail || body.error || `HTTP ${res.status}`);
+      }
+      return body as { ok: true };
     },
   });
 }

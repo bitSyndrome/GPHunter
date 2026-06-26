@@ -3,16 +3,20 @@ import {
   computeGhostTier,
   computeMaturityScore,
   computeMomentum,
+  computeRegretScore,
   daysBetween,
   HEATMAP_DAYS,
   MS_PER_DAY,
   type EventPayload,
+  type NotificationConfig,
+  type NotifyKind,
   type Project,
   type ProjectPatch,
   type ProjectSort,
   type Stats,
 } from "@gph/shared";
 import type { DB } from "./db.ts";
+import type { SummarizeInput, SummaryResult } from "./llm.ts";
 
 interface ProjectRow {
   id: number;
@@ -29,6 +33,12 @@ interface ProjectRow {
   completion_pct: number | null;
   pinned: number;
   archived: number;
+  epitaph: string | null;
+  retired_at: string | null;
+  ai_summary: string | null;
+  ai_next_step: string | null;
+  ai_model: string | null;
+  summarized_at: string | null;
 }
 
 /* ── Ingest ────────────────────────────────────────────────── */
@@ -98,33 +108,148 @@ function isRemoteKey(key: string): boolean {
 }
 
 /**
- * Uppercase a leading Windows drive letter (`d:\…` → `D:\…`). Windows paths are
- * case-insensitive, but agents echo the cwd's drive-letter case verbatim, so the
- * same folder opened as `d:\foo` vs `D:\foo` would split into two projects.
- * No-op on POSIX paths. Done server-side so every agent — Python, Node, shell,
- * any version — dedupes consistently without needing a client update.
+ * Canonical form of a project identity KEY, used for dedupe. Applied identically
+ * at ingestion AND in the startup backfill (migrateCanonicalKeys), so a row written
+ * under an older/narrower rule collapses with a new one instead of splitting.
+ *
+ * Why this exists: an earlier fix only uppercased the drive LETTER, which left the
+ * rest of a (case-insensitive) Windows path, separator style, and the hostname as
+ * splitting factors — and never reconciled rows already stored. This canonicalizes
+ * the whole key class in one place.
+ *
+ *  - Remote keys (`github.com/u/r`) are lowercased upstream → pass through.
+ *  - Local keys `local:<host>:<abs path>`:
+ *      host         → lowercased (DNS is case-insensitive; agents vary MyBox/mybox)
+ *      Windows path → case-INSENSITIVE: unify separators to `\`, drop trailing
+ *                     slash, lowercase the whole path (so `D:\Proj\Foo` == `d:\proj\foo`)
+ *      POSIX path   → case-SENSITIVE: only drop a trailing slash
+ * Idempotent: canonicalKey(canonicalKey(x)) === canonicalKey(x).
+ * Done server-side so every agent — any language, any version — dedupes the same
+ * way without a client update.
  */
-function normalizeDriveLetter(s: string): string {
+export function canonicalKey(key: string): string {
+  if (!key.startsWith("local:")) return key;
+  const m = key.match(/^local:([^:]*):([\s\S]*)$/);
+  if (!m) return key;
+  const host = m[1].toLowerCase();
+  let p = m[2];
+  if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith("\\\\")) {
+    // Windows (drive-letter or UNC) path: case- and separator-insensitive.
+    p = p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+  } else {
+    // POSIX path: case-sensitive; just strip a trailing slash (keep root "/").
+    p = p.replace(/\/+$/, "") || "/";
+  }
+  return `local:${host}:${p}`;
+}
+
+/** Uppercase a leading Windows drive letter for the human-facing display path. */
+function displayDriveLetter(s: string): string {
   return s.replace(/^([a-z]):/, (_m, d: string) => `${d.toUpperCase()}:`);
 }
 
-/** Normalize a `local:<host>:<abs path>` key; remote keys pass through. */
-function normalizeLocalKey(key: string): string {
-  return key.replace(
-    /^(local:[^:]*:)([a-z]):/,
-    (_m, head: string, d: string) => `${head}${d.toUpperCase()}:`,
-  );
-}
-
-/** Apply drive-letter normalization to every project identity on the payload. */
-function normalizeProjectKeys(payload: EventPayload): void {
-  payload.project.key = normalizeLocalKey(payload.project.key);
+/** Canonicalize every identity key on the payload; tidy the display path. */
+function canonicalizeProjectKeys(payload: EventPayload): void {
+  payload.project.key = canonicalKey(payload.project.key);
   if (payload.project.alt_keys) {
-    payload.project.alt_keys = payload.project.alt_keys.map(normalizeLocalKey);
+    payload.project.alt_keys = payload.project.alt_keys.map(canonicalKey);
   }
   if (payload.project.path) {
-    payload.project.path = normalizeDriveLetter(payload.project.path);
+    payload.project.path = displayDriveLetter(payload.project.path);
   }
+}
+
+/**
+ * One-time-per-startup backfill: re-key existing projects and aliases through
+ * canonicalKey, merging any that collapse to the same canonical identity. This is
+ * what reconciles rows split BEFORE canonicalKey existed (forward-only normalization
+ * could never match a new canonical key against an old un-normalized alias).
+ * Idempotent — on an already-canonical DB it merges nothing and rewrites nothing.
+ */
+export function migrateCanonicalKeys(db: DB): void {
+  const tx = db.transaction(() => {
+    const projects = db
+      .prepare("SELECT id, user_id, project_key FROM projects")
+      .all() as { id: number; user_id: number; project_key: string }[];
+    const aliases = db
+      .prepare("SELECT user_id, alias_key, project_id FROM project_aliases")
+      .all() as { user_id: number; alias_key: string; project_id: number }[];
+    if (projects.length === 0) return;
+
+    // Every identity key each project is reachable by (its own key + its aliases).
+    const keysByProject = new Map<number, Set<string>>();
+    const userByProject = new Map<number, number>();
+    for (const p of projects) {
+      userByProject.set(p.id, p.user_id);
+      keysByProject.set(p.id, new Set([p.project_key]));
+    }
+    for (const a of aliases) keysByProject.get(a.project_id)?.add(a.alias_key);
+
+    // Union-find: projects sharing any (user, canonicalKey) are the same project.
+    const parent = new Map<number, number>(projects.map((p) => [p.id, p.id]));
+    const find = (x: number): number => {
+      let r = x;
+      while (parent.get(r) !== r) r = parent.get(r)!;
+      while (parent.get(x) !== r) {
+        const n = parent.get(x)!;
+        parent.set(x, r);
+        x = n;
+      }
+      return r;
+    };
+    const union = (a: number, b: number): void => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent.set(Math.max(ra, rb), Math.min(ra, rb));
+    };
+
+    const owner = new Map<string, number>(); // "user|canonicalKey" → project id
+    for (const [pid, keys] of keysByProject) {
+      const uid = userByProject.get(pid)!;
+      for (const k of keys) {
+        const ck = `${uid}|${canonicalKey(k)}`;
+        const prev = owner.get(ck);
+        if (prev === undefined) owner.set(ck, pid);
+        else union(prev, pid);
+      }
+    }
+
+    // Merge each group into its lowest-id survivor.
+    const groups = new Map<number, number[]>();
+    for (const p of projects) {
+      const r = find(p.id);
+      (groups.get(r) ?? groups.set(r, []).get(r)!).push(p.id);
+    }
+    for (const members of groups.values()) {
+      members.sort((a, b) => a - b);
+      if (members.length > 1) mergeProjects(db, members[0], members.slice(1));
+    }
+
+    // Rewrite each survivor's primary key to canonical form.
+    const setKey = db.prepare(
+      "UPDATE projects SET project_key = ? WHERE id = ?",
+    );
+    for (const s of db
+      .prepare("SELECT id, project_key FROM projects")
+      .all() as { id: number; project_key: string }[]) {
+      const ck = canonicalKey(s.project_key);
+      if (ck !== s.project_key) setKey.run(ck, s.id);
+    }
+
+    // Rebuild the alias table from canonical keys (dedupes; collisions are
+    // impossible now since all colliding projects were unioned above).
+    db.prepare("DELETE FROM project_aliases").run();
+    const ins = db.prepare(
+      `INSERT OR IGNORE INTO project_aliases (user_id, alias_key, project_id)
+       VALUES (?, ?, ?)`,
+    );
+    for (const [pid, keys] of keysByProject) {
+      const survivor = find(pid);
+      const uid = userByProject.get(pid)!;
+      for (const k of keys) ins.run(uid, canonicalKey(k), survivor);
+    }
+  });
+  tx();
 }
 
 export function ingestEvent(
@@ -145,7 +270,7 @@ export function ingestEvent(
   const maturity = payload.maturity_signals
     ? computeMaturityScore(payload.maturity_signals)
     : null;
-  normalizeProjectKeys(payload);
+  canonicalizeProjectKeys(payload);
   const keys = candidateKeys(payload);
 
   const tx = db.transaction(() => {
@@ -388,12 +513,15 @@ function toView(
   deviceCount: number,
 ): Project {
   const days = daysBetween(Date.parse(row.last_active_at), nowMs);
+  const ghostScore = Math.round(computeGhostScore(days, row.total_turns) * 100) / 100;
+  const completion = row.completion_pct ?? row.maturity_score;
   return {
     id: row.id,
     project_key: row.project_key,
     name: row.name,
     description: row.description,
     repo_url: row.repo_url,
+    path: row.path,
     first_seen_at: row.first_seen_at,
     last_active_at: row.last_active_at,
     total_sessions: row.total_sessions,
@@ -402,10 +530,17 @@ function toView(
     completion_pct: row.completion_pct,
     pinned: row.pinned === 1,
     archived: row.archived === 1,
+    epitaph: row.epitaph,
+    retired_at: row.retired_at,
+    ai_summary: row.ai_summary,
+    ai_next_step: row.ai_next_step,
+    summarized_at: row.summarized_at,
     device_count: deviceCount,
     days_since_active: Math.round(days * 10) / 10,
     ghost_tier: computeGhostTier(days),
-    ghost_score: Math.round(computeGhostScore(days, row.total_turns) * 100) / 100,
+    ghost_score: ghostScore,
+    completion,
+    regret_score: Math.round(computeRegretScore(ghostScore, completion) * 100) / 100,
     momentum: computeMomentum(daily?.recent7d ?? 0, daily?.peak7d ?? 0),
     heatmap: daily?.heatmap ?? emptyHeatmap(nowMs),
   };
@@ -437,6 +572,13 @@ export function listProjects(
       (v) => v.ghost_tier === "ghost" || v.ghost_tier === "buried",
     );
     views.sort(byPinned((a, b) => b.ghost_score - a.ghost_score));
+  } else if (sort === "regret") {
+    // Near-finished ghosts first: same abandonment pool as "ghost", reranked
+    // so the highest-completion (most regrettable) projects rise to the top.
+    views = views.filter(
+      (v) => v.ghost_tier === "ghost" || v.ghost_tier === "buried",
+    );
+    views.sort(byPinned((a, b) => b.regret_score - a.regret_score));
   } else if (sort === "momentum") {
     views.sort(byPinned((a, b) => b.momentum - a.momentum));
   } else {
@@ -491,6 +633,52 @@ export function getProject(
   };
 }
 
+/** Gather what the LLM needs to summarize a project (null if not owned). */
+export function summarizeInput(
+  db: DB,
+  userId: number,
+  id: number,
+): SummarizeInput | null {
+  const row = db
+    .prepare("SELECT * FROM projects WHERE id = ? AND user_id = ?")
+    .get(id, userId) as ProjectRow | undefined;
+  if (!row) return null;
+  const summaries = (
+    db
+      .prepare(
+        `SELECT summary FROM events
+         WHERE project_id = ? AND summary IS NOT NULL AND summary != ''
+         ORDER BY ts DESC LIMIT 5`,
+      )
+      .all(id) as { summary: string }[]
+  ).map((r) => r.summary);
+  return {
+    name: row.name,
+    daysSinceActive: daysBetween(Date.parse(row.last_active_at), Date.now()),
+    totalTurns: row.total_turns,
+    recentSummaries: summaries,
+  };
+}
+
+/** Persist an AI summary; returns the refreshed project detail (null if gone). */
+export function storeSummary(
+  db: DB,
+  userId: number,
+  id: number,
+  model: string,
+  result: SummaryResult,
+) {
+  const info = db
+    .prepare(
+      `UPDATE projects
+         SET ai_summary = ?, ai_next_step = ?, ai_model = ?, summarized_at = ?
+       WHERE id = ? AND user_id = ?`,
+    )
+    .run(result.summary, result.next_step, model, new Date().toISOString(), id, userId);
+  if (info.changes === 0) return null;
+  return getProject(db, userId, id);
+}
+
 export function patchProject(
   db: DB,
   userId: number,
@@ -510,7 +698,16 @@ export function patchProject(
     completion_pct: patch.completion_pct,
     name: patch.name,
     description: patch.description,
+    epitaph: patch.epitaph,
   };
+  // Retirement bookkeeping: stamp a tombstone date when archiving ("보내주기"),
+  // and on revive ("되살리기") clear both the date and the epitaph.
+  if (patch.archived === true) {
+    map.retired_at = new Date().toISOString();
+  } else if (patch.archived === false) {
+    map.retired_at = null;
+    if (patch.epitaph === undefined) map.epitaph = null;
+  }
   for (const [col, val] of Object.entries(map)) {
     if (val !== undefined) {
       sets.push(`${col} = @${col}`);
@@ -546,4 +743,77 @@ export function getStats(db: DB, userId: number): Stats {
     ghosts: projects.filter((p) => p.ghost_tier === "ghost").length,
     buried: projects.filter((p) => p.ghost_tier === "buried").length,
   };
+}
+
+/* ── Notification config (Slack/Discord digest webhook) ────── */
+
+interface NotifyRow {
+  webhook_url: string;
+  kind: NotifyKind;
+  enabled: number;
+  last_sent_at: string | null;
+}
+
+export function getNotificationConfig(
+  db: DB,
+  userId: number,
+): NotificationConfig | null {
+  const row = db
+    .prepare(
+      "SELECT webhook_url, kind, enabled, last_sent_at FROM notification_config WHERE user_id = ?",
+    )
+    .get(userId) as NotifyRow | undefined;
+  if (!row) return null;
+  return {
+    webhook_url: row.webhook_url,
+    kind: row.kind,
+    enabled: row.enabled === 1,
+    last_sent_at: row.last_sent_at,
+  };
+}
+
+export function putNotificationConfig(
+  db: DB,
+  userId: number,
+  webhookUrl: string,
+  kind: NotifyKind,
+  enabled: boolean,
+): NotificationConfig {
+  db.prepare(
+    `INSERT INTO notification_config (user_id, webhook_url, kind, enabled)
+     VALUES (@uid, @url, @kind, @enabled)
+     ON CONFLICT(user_id) DO UPDATE SET
+       webhook_url = @url, kind = @kind, enabled = @enabled`,
+  ).run({ uid: userId, url: webhookUrl, kind, enabled: Number(enabled) });
+  return getNotificationConfig(db, userId)!;
+}
+
+export function deleteNotificationConfig(db: DB, userId: number): void {
+  db.prepare("DELETE FROM notification_config WHERE user_id = ?").run(userId);
+}
+
+export function markDigestSent(db: DB, userId: number, atIso: string): void {
+  db.prepare(
+    "UPDATE notification_config SET last_sent_at = ? WHERE user_id = ?",
+  ).run(atIso, userId);
+}
+
+/** Enabled configs whose last digest is older than `olderThanMs` (or never sent). */
+export function dueNotificationConfigs(
+  db: DB,
+  nowMs: number,
+  olderThanMs: number,
+): { user_id: number; webhook_url: string; kind: NotifyKind }[] {
+  const rows = db
+    .prepare(
+      "SELECT user_id, webhook_url, kind, last_sent_at FROM notification_config WHERE enabled = 1",
+    )
+    .all() as (NotifyRow & { user_id: number })[];
+  return rows
+    .filter(
+      (r) =>
+        r.last_sent_at == null ||
+        nowMs - Date.parse(r.last_sent_at) >= olderThanMs,
+    )
+    .map((r) => ({ user_id: r.user_id, webhook_url: r.webhook_url, kind: r.kind }));
 }

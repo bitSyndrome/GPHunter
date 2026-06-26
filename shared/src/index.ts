@@ -114,7 +114,7 @@ export type BulkEventResponse = z.infer<typeof BulkEventResponseSchema>;
 /* ── Project read model (GET /api/v1/projects) ─────────────── */
 
 export const ProjectSortSchema = z
-  .enum(["ghost", "active", "momentum"])
+  .enum(["ghost", "active", "momentum", "regret"])
   .default("active");
 export type ProjectSort = z.infer<typeof ProjectSortSchema>;
 
@@ -124,6 +124,7 @@ export const ProjectSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   repo_url: z.string().nullable(),
+  path: z.string().nullable(), // local filesystem path, for the revive command
   first_seen_at: z.string(),
   last_active_at: z.string(),
   total_sessions: z.number().int(),
@@ -132,11 +133,25 @@ export const ProjectSchema = z.object({
   completion_pct: z.number().nullable(),
   pinned: z.boolean(),
   archived: z.boolean(),
+  // Retirement ("보내주기"): a one-line epitaph + when it was laid to rest.
+  // Set when a project is deliberately archived; cleared on revive.
+  epitaph: z.string().nullable(),
+  retired_at: z.string().nullable(),
+  // AI memory-aid (Phase 3): generated on demand, null until requested.
+  ai_summary: z.string().nullable(),
+  ai_next_step: z.string().nullable(),
+  summarized_at: z.string().nullable(),
   device_count: z.number().int(),
   // computed
   days_since_active: z.number(),
   ghost_tier: z.enum(GHOST_TIERS),
   ghost_score: z.number(),
+  // how "done" this project looks, 0..100: manual completion_pct if set, else
+  // maturity_score as a proxy. Drives the regret leaderboard.
+  completion: z.number(),
+  // abandonment weighted by doneness: a near-finished ghost is more regrettable
+  // to lose than a barely-started one. Powers the "regret" sort.
+  regret_score: z.number(),
   momentum: z.number(), // 0..100
   // last-N-days contribution heatmap (oldest -> newest), value = turns that day
   heatmap: z.array(z.object({ day: z.string(), value: z.number() })),
@@ -162,9 +177,51 @@ export const ProjectPatchSchema = z
     completion_pct: z.number().min(0).max(100).nullable(),
     name: z.string().min(1).max(200),
     description: z.string().max(500).nullable(),
+    epitaph: z.string().max(500).nullable(),
   })
   .partial();
 export type ProjectPatch = z.infer<typeof ProjectPatchSchema>;
+
+/* ── Notifications (Slack/Discord digest webhook) ──────────── */
+
+export const NOTIFY_KINDS = ["slack", "discord"] as const;
+export type NotifyKind = (typeof NOTIFY_KINDS)[number];
+
+/** PUT body: the user pastes a webhook URL; the channel kind is auto-detected. */
+export const NotificationConfigInputSchema = z.object({
+  webhook_url: z.string().url().max(1024),
+  enabled: z.boolean().default(true),
+});
+export type NotificationConfigInput = z.infer<
+  typeof NotificationConfigInputSchema
+>;
+
+/** Read model for GET /notifications (null when unconfigured). */
+export const NotificationConfigSchema = z.object({
+  webhook_url: z.string(),
+  kind: z.enum(NOTIFY_KINDS),
+  enabled: z.boolean(),
+  last_sent_at: z.string().nullable(),
+});
+export type NotificationConfig = z.infer<typeof NotificationConfigSchema>;
+
+/**
+ * Detect the channel kind from a webhook URL so the user only pastes a URL.
+ * Returns null for anything we don't recognize.
+ */
+export function detectNotifyKind(url: string): NotifyKind | null {
+  let host: string;
+  try {
+    host = new URL(url).host.toLowerCase();
+  } catch {
+    return null;
+  }
+  if (host.endsWith("slack.com")) return "slack";
+  if (host.endsWith("discord.com") || host.endsWith("discordapp.com")) {
+    return "discord";
+  }
+  return null;
+}
 
 export const StatsSchema = z.object({
   total_projects: z.number().int(),
@@ -199,6 +256,22 @@ export function computeGhostScore(
   totalTurns: number,
 ): number {
   return daysSinceActive * Math.log10(Math.max(0, totalTurns) + 10);
+}
+
+/**
+ * Regret score for the "Most Regrettable" leaderboard — surfaces ghosts that were
+ * nearly finished when abandoned (high investment + high doneness), which sting
+ * more to lose than early throwaways with the same idle time.
+ *   regret = ghostScore * (0.25 + 0.75 * completion/100)
+ * A 100%-done ghost keeps its full ghost score; a 0%-done one is damped to a
+ * quarter, so completion reorders without ever fully hiding a project.
+ */
+export function computeRegretScore(
+  ghostScore: number,
+  completion: number,
+): number {
+  const c = Math.min(100, Math.max(0, completion)) / 100;
+  return ghostScore * (0.25 + 0.75 * c);
 }
 
 /**
