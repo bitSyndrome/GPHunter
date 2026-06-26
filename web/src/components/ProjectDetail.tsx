@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useProjectDetail, usePatchProject } from "../api.ts";
+import { useProjectDetail, usePatchProject, useSummarize } from "../api.ts";
 import { tierStyle, relativeDays } from "../format.ts";
 import { Icon } from "./Icon.tsx";
 
@@ -31,6 +31,7 @@ export function ProjectDetail({
 }) {
   const { data, isLoading } = useProjectDetail(id);
   const patch = usePatchProject();
+  const summarize = useSummarize();
   const [pct, setPct] = useState("");
 
   return (
@@ -75,6 +76,47 @@ export function ProjectDetail({
                 “{data.recent_summary}”
               </p>
             )}
+
+            {/* AI memory-aid: what was I doing + how to resume */}
+            <div className="mt-3 rounded-lg border border-neutral-800 p-2.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1 text-xs font-medium text-neutral-300">
+                  <Icon name="auto_awesome" size={14} />
+                  AI 기억 보조
+                </span>
+                <button
+                  onClick={() => summarize.mutate(id)}
+                  disabled={summarize.isPending}
+                  className="rounded px-2 py-0.5 text-xs text-[var(--color-accent)] hover:bg-neutral-800 disabled:opacity-50"
+                >
+                  {summarize.isPending
+                    ? "생성 중…"
+                    : data.ai_summary
+                      ? "다시 생성"
+                      : "요약 생성"}
+                </button>
+              </div>
+              {data.ai_summary ? (
+                <>
+                  <p className="text-sm text-neutral-200">{data.ai_summary}</p>
+                  {data.ai_next_step && (
+                    <p className="mt-1 text-xs text-neutral-400">
+                      <span className="text-neutral-500">다음 할 일 · </span>
+                      {data.ai_next_step}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-neutral-600">
+                  최근 세션 기록으로 “무엇을 하고 있었는지 + 다음 할 일”을 요약합니다.
+                </p>
+              )}
+              {summarize.isError && (
+                <p className="mt-1 text-xs text-red-400">
+                  {(summarize.error as Error).message}
+                </p>
+              )}
+            </div>
 
             <div className="mt-4">
               <div className="mb-1 text-xs text-neutral-400">최근 활동</div>

@@ -121,9 +121,40 @@ test("local keys differing only in Windows drive-letter case dedupe", async () =
   assert.equal(projects[0].total_turns, 5);
   assert.equal(
     projects[0].project_key,
-    "local:winbox:D:\\proj\\T-Mi",
-    "drive letter normalized to uppercase",
+    "local:winbox:d:\\proj\\t-mi",
+    "windows key canonicalized to lowercase",
   );
+
+  server.close();
+});
+
+test("windows keys differing in path case / separators / host case dedupe", async () => {
+  const { server, base } = startServer();
+  const ev = (key: string, turns: number) => ({
+    device_id: "winbox",
+    event_type: "session_end",
+    project: { key, name: "App", path: key.split(":").slice(2).join(":") },
+    metrics: { turns },
+  });
+
+  // Same folder seen as: backslash, forward-slash + trailing, folder-case + HOST-case.
+  for (const [key, turns] of [
+    ["local:WinBox:D:\\Code\\App", 2],
+    ["local:winbox:D:/code/app/", 3],
+    ["local:WINBOX:d:\\CODE\\App\\", 4],
+  ] as const) {
+    await fetch(`${base}/api/v1/events`, {
+      method: "POST",
+      headers: authed(),
+      body: JSON.stringify(ev(key, turns)),
+    });
+  }
+
+  const projects = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(projects.length, 1, "case/separator/host variants must not split");
+  assert.equal(projects[0].total_turns, 9);
 
   server.close();
 });
@@ -376,6 +407,178 @@ test("rate limits /events past the bucket capacity", async () => {
   assert.deepEqual(codes.slice(0, 3), [200, 200, 200], "first 3 allowed");
   assert.equal(codes[3], 429, "4th over capacity");
   assert.equal(codes[4], 429);
+  server.close();
+});
+
+test("notification config saves with auto-detected channel; rejects junk URLs", async () => {
+  const { server, base } = startServer();
+
+  // Unconfigured → null.
+  const empty = await (
+    await fetch(`${base}/api/v1/notifications`, { headers: authed() })
+  ).json();
+  assert.equal(empty, null);
+
+  // Junk URL rejected.
+  const bad = await fetch(`${base}/api/v1/notifications`, {
+    method: "PUT",
+    headers: authed(),
+    body: JSON.stringify({ webhook_url: "https://example.com/nope" }),
+  });
+  assert.equal(bad.status, 400);
+
+  // Slack URL → kind auto-detected.
+  const saved = await (
+    await fetch(`${base}/api/v1/notifications`, {
+      method: "PUT",
+      headers: authed(),
+      body: JSON.stringify({
+        webhook_url: "https://hooks.slack.com/services/T0/B0/xyz",
+      }),
+    })
+  ).json();
+  assert.equal(saved.kind, "slack");
+  assert.equal(saved.enabled, true);
+
+  // Discord URL updates the same config.
+  const disc = await (
+    await fetch(`${base}/api/v1/notifications`, {
+      method: "PUT",
+      headers: authed(),
+      body: JSON.stringify({
+        webhook_url: "https://discord.com/api/webhooks/1/abc",
+        enabled: false,
+      }),
+    })
+  ).json();
+  assert.equal(disc.kind, "discord");
+  assert.equal(disc.enabled, false);
+
+  // Delete clears it.
+  await fetch(`${base}/api/v1/notifications`, {
+    method: "DELETE",
+    headers: authed(),
+  });
+  const gone = await (
+    await fetch(`${base}/api/v1/notifications`, { headers: authed() })
+  ).json();
+  assert.equal(gone, null);
+
+  server.close();
+});
+
+test("summarize returns 503 when no LLM is configured", async () => {
+  const { server, base } = startServer(); // startServer passes no llm config
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "d",
+      event_type: "session_end",
+      project: { key: "k", name: "n" },
+      metrics: { turns: 1 },
+    }),
+  });
+  const [p] = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+
+  const res = await fetch(`${base}/api/v1/projects/${p.id}/summarize`, {
+    method: "POST",
+    headers: authed(),
+  });
+  assert.equal(res.status, 503, "AI feature is off without an API key");
+  const body = await res.json();
+  assert.match(body.hint, /GPH_LLM_API_KEY/);
+
+  server.close();
+});
+
+test("retire stamps an epitaph + tombstone date; revive clears them", async () => {
+  const { server, base } = startServer();
+  await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "d",
+      event_type: "session_end",
+      project: { key: "k", name: "n", path: "/home/me/n" },
+      metrics: { turns: 3 },
+    }),
+  });
+  const [p] = await (
+    await fetch(`${base}/api/v1/projects`, { headers: authed() })
+  ).json();
+  assert.equal(p.path, "/home/me/n", "path exposed for revive command");
+
+  // 보내주기: archive with an epitaph.
+  const retired = await (
+    await fetch(`${base}/api/v1/projects/${p.id}`, {
+      method: "PATCH",
+      headers: authed(),
+      body: JSON.stringify({ archived: true, epitaph: "좋은 실험이었다" }),
+    })
+  ).json();
+  assert.equal(retired.archived, true);
+  assert.equal(retired.epitaph, "좋은 실험이었다");
+  assert.ok(retired.retired_at, "tombstone date stamped");
+
+  // 되살리기: un-archive clears epitaph + date.
+  const revived = await (
+    await fetch(`${base}/api/v1/projects/${p.id}`, {
+      method: "PATCH",
+      headers: authed(),
+      body: JSON.stringify({ archived: false }),
+    })
+  ).json();
+  assert.equal(revived.archived, false);
+  assert.equal(revived.epitaph, null, "epitaph cleared on revive");
+  assert.equal(revived.retired_at, null, "tombstone date cleared on revive");
+
+  server.close();
+});
+
+test("regret sort ranks near-finished ghosts above early throwaways", async () => {
+  const { server, base } = startServer();
+  const old = "2020-01-01T00:00:00Z"; // long abandoned → ghost/buried
+  const send = (key: string) =>
+    fetch(`${base}/api/v1/events`, {
+      method: "POST",
+      headers: authed(),
+      body: JSON.stringify({
+        device_id: "d",
+        event_type: "session_end",
+        ts: old,
+        project: { key, name: key },
+        metrics: { turns: 50 }, // equal investment → equal ghost_score
+      }),
+    });
+  await send("almost");
+  await send("early");
+
+  const byGhost = await (
+    await fetch(`${base}/api/v1/projects?sort=ghost`, { headers: authed() })
+  ).json();
+  const idOf = (n: string) => byGhost.find((p: { name: string }) => p.name === n).id;
+  // Same idle time + turns, so ghost_score ties; only completion differs.
+  await fetch(`${base}/api/v1/projects/${idOf("almost")}`, {
+    method: "PATCH",
+    headers: authed(),
+    body: JSON.stringify({ completion_pct: 95 }),
+  });
+  await fetch(`${base}/api/v1/projects/${idOf("early")}`, {
+    method: "PATCH",
+    headers: authed(),
+    body: JSON.stringify({ completion_pct: 5 }),
+  });
+
+  const byRegret = await (
+    await fetch(`${base}/api/v1/projects?sort=regret`, { headers: authed() })
+  ).json();
+  assert.equal(byRegret[0].name, "almost", "near-finished ghost ranks first");
+  assert.ok(byRegret[0].regret_score > byRegret[1].regret_score);
+  assert.equal(byRegret[0].completion, 95);
+
   server.close();
 });
 

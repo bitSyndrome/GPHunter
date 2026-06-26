@@ -4,6 +4,7 @@ import { Icon } from "./Icon.tsx";
 const TABS: { key: ProjectSort; icon: string; label: string }[] = [
   { key: "active", icon: "trophy", label: "Most Active" },
   { key: "ghost", icon: "blur_on", label: "Most Haunted" },
+  { key: "regret", icon: "heart_broken", label: "Most Regrettable" },
   { key: "momentum", icon: "local_fire_department", label: "Momentum" },
 ];
 

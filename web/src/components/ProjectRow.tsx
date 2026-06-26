@@ -1,9 +1,15 @@
+import { useState } from "react";
 import type { Project } from "@gph/shared";
 import { tierStyle, relativeDays } from "../format.ts";
 import { Gauge } from "./Gauge.tsx";
 import { Heatmap } from "./Heatmap.tsx";
 import { usePatchProject } from "../api.ts";
 import { Icon } from "./Icon.tsx";
+
+/** Shell command to jump back into a project ("되살리기"). */
+function reviveCommand(project: Project): string {
+  return project.path ? `cd "${project.path}" && claude` : "claude";
+}
 
 export function ProjectRow({
   rank,
@@ -16,8 +22,31 @@ export function ProjectRow({
 }) {
   const tier = tierStyle(project.ghost_tier);
   const patch = usePatchProject();
+  const [copied, setCopied] = useState(false);
   const maturity = project.completion_pct ?? project.maturity_score;
   const maturityLabel = project.completion_pct != null ? "완성도" : "성숙도";
+
+  // 되살리기: copy the jump-back command; if it was retired, un-retire it too.
+  const revive = async () => {
+    try {
+      await navigator.clipboard.writeText(reviveCommand(project));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — still un-retire below */
+    }
+    if (project.archived) patch.mutate({ id: project.id, patch: { archived: false } });
+  };
+
+  // 보내주기: lay the project to rest with a one-line epitaph.
+  const retire = () => {
+    const note = window.prompt("회고 한 줄 (묘비명):", project.epitaph ?? "");
+    if (note === null) return; // cancelled
+    patch.mutate({
+      id: project.id,
+      patch: { archived: true, epitaph: note.trim() || null },
+    });
+  };
 
   return (
     <div
@@ -90,20 +119,25 @@ export function ProjectRow({
               <Icon name="push_pin" filled={project.pinned} size={14} />
             </button>
             <button
-              title={project.archived ? "복원" : "아카이브"}
-              onClick={() =>
-                patch.mutate({
-                  id: project.id,
-                  patch: { archived: !project.archived },
-                })
-              }
-              className="flex rounded p-0.5 text-neutral-600 transition-colors hover:bg-neutral-800 hover:text-neutral-300"
+              title={copied ? "명령 복사됨!" : "되살리기 (이어서 작업 명령 복사)"}
+              onClick={revive}
+              className={`flex rounded p-0.5 transition-colors hover:bg-neutral-800 ${
+                copied
+                  ? "text-emerald-400"
+                  : "text-neutral-600 hover:text-neutral-300"
+              }`}
             >
-              <Icon
-                name={project.archived ? "unarchive" : "archive"}
-                size={14}
-              />
+              <Icon name={copied ? "check" : "replay"} size={14} />
             </button>
+            {!project.archived && (
+              <button
+                title="보내주기 (회고 남기고 안식)"
+                onClick={retire}
+                className="flex rounded p-0.5 text-neutral-600 transition-colors hover:bg-neutral-800 hover:text-neutral-300"
+              >
+                <Icon name="waving_hand" size={14} />
+              </button>
+            )}
           </div>
           <div className="text-right">
             <div
@@ -120,7 +154,11 @@ export function ProjectRow({
         </div>
       </div>
 
-      
+      {project.archived && project.epitaph && (
+        <div className="mt-1.5 border-t border-neutral-800 pt-1.5 text-[11px] italic text-neutral-500">
+          🪦 {project.epitaph}
+        </div>
+      )}
     </div>
   );
 }
