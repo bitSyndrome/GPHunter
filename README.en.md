@@ -67,7 +67,7 @@ Workspace layout:
 ## 🚀 Quick start
 
 ### Requirements
-- Node.js **20+** (Node 22 recommended — uses native TypeScript execution)
+- Node.js **22.6+** (required — the server and tests run TypeScript directly via `--experimental-strip-types`)
 - git (used for project identity and maturity signals)
 
 ### 1) Install & build

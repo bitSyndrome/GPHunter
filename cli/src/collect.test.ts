@@ -4,12 +4,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { normalizeRepoUrl } from "@gph/shared";
 import {
   deriveProjectIdentity,
   scanMaturity,
   countTurns,
   filesChanged,
 } from "./collect.ts";
+
+/*
+ * Hermetic git: ignore the developer's/runner's global + system config.
+ * A machine with `url.<base>.insteadOf` (a common corporate / SSH-avoidance
+ * setting) silently rewrites the remote we add below, which would fail the
+ * identity test for reasons that have nothing to do with our code.
+ */
+process.env.GIT_CONFIG_GLOBAL = "/dev/null";
+process.env.GIT_CONFIG_SYSTEM = "/dev/null";
 
 function tmpDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "gph-"));
@@ -37,7 +47,10 @@ test("deriveProjectIdentity uses remote primary + local alt when git remote set"
     assert.equal(id.key, "github.com/me/repo");
     assert.equal(id.altKeys.length, 1);
     assert.ok(id.altKeys[0].startsWith("local:"));
-    assert.equal(id.repo_url, "git@github.com:me/repo.git");
+    // The raw remote string is whatever git echoes back (it may be rewritten
+    // by insteadOf rules); what must hold is that it normalizes to the key.
+    assert.ok(id.repo_url);
+    assert.equal(normalizeRepoUrl(id.repo_url), id.key);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
