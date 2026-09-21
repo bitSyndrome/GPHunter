@@ -8,6 +8,11 @@ import {
   versionAtLeast010,
   normalizeRepoUrl,
   daysBetween,
+  parseUtcOffsetMinutes,
+  localDayKey,
+  sqliteDayModifier,
+  localDayStartMs,
+  lastLocalDays,
   EventSchema,
   type MaturitySignals,
 } from "./index.ts";
@@ -106,5 +111,81 @@ test("EventSchema rejects bad event_type", () => {
       event_type: "nope",
       project: { key: "k", name: "n" },
     }),
+  );
+});
+
+/* ── Local-day bucketing ────────────────────────── */
+
+test("parseUtcOffsetMinutes accepts the common spellings", () => {
+  assert.equal(parseUtcOffsetMinutes("+09:00"), 540);
+  assert.equal(parseUtcOffsetMinutes("+0900"), 540);
+  assert.equal(parseUtcOffsetMinutes("+9"), 540);
+  assert.equal(parseUtcOffsetMinutes("09:00"), 540); // unsigned = east
+  assert.equal(parseUtcOffsetMinutes("-05:00"), -300);
+  assert.equal(parseUtcOffsetMinutes("-0530"), -330);
+  assert.equal(parseUtcOffsetMinutes("+05:45"), 345); // Nepal
+  assert.equal(parseUtcOffsetMinutes("Z"), 0);
+  assert.equal(parseUtcOffsetMinutes("utc"), 0);
+});
+
+test("parseUtcOffsetMinutes rejects junk instead of guessing", () => {
+  for (const bad of ["", "   ", "abc", "+9:0", "+09:99", "+25:00", "-20:00"]) {
+    assert.equal(
+      parseUtcOffsetMinutes(bad),
+      null,
+      `should reject ${JSON.stringify(bad)}`,
+    );
+  }
+});
+
+test("localDayKey puts early-morning KST work on the right day", () => {
+  // The bug this fixes: 2026-09-20 08:00 KST is 2026-09-19T23:00Z, which
+  // UTC bucketing filed under the 19th.
+  const earlyMorningKst = Date.parse("2026-09-19T23:00:00.000Z");
+  assert.equal(localDayKey(earlyMorningKst, 0), "2026-09-19"); // old behaviour
+  assert.equal(localDayKey(earlyMorningKst, 540), "2026-09-20"); // fixed
+});
+
+test("localDayKey respects local midnight boundaries", () => {
+  // 23:59 KST on the 19th, then 00:00 KST on the 20th.
+  assert.equal(
+    localDayKey(Date.parse("2026-09-19T14:59:59.999Z"), 540),
+    "2026-09-19",
+  );
+  assert.equal(
+    localDayKey(Date.parse("2026-09-19T15:00:00.000Z"), 540),
+    "2026-09-20",
+  );
+  // Negative offset: 03:00Z is still the 19th in US Eastern.
+  assert.equal(
+    localDayKey(Date.parse("2026-09-20T03:00:00.000Z"), -300),
+    "2026-09-19",
+  );
+});
+
+test("sqliteDayModifier formats both signs and zero", () => {
+  assert.equal(sqliteDayModifier(540), "+540 minutes");
+  assert.equal(sqliteDayModifier(-300), "-300 minutes");
+  assert.equal(sqliteDayModifier(0), "+0 minutes");
+});
+
+test("localDayStartMs round-trips with localDayKey", () => {
+  for (const offset of [0, 540, -300, 345]) {
+    const startMs = localDayStartMs("2026-09-20", offset);
+    // The first instant of the day maps back to that day...
+    assert.equal(localDayKey(startMs, offset), "2026-09-20");
+    // ...and one millisecond earlier belongs to the day before.
+    assert.equal(localDayKey(startMs - 1, offset), "2026-09-19");
+  }
+});
+
+test("lastLocalDays returns n consecutive days ending today", () => {
+  const now = Date.parse("2026-09-20T12:00:00.000Z");
+  const days = lastLocalDays(now, 3, 540);
+  assert.deepEqual(days, ["2026-09-18", "2026-09-19", "2026-09-20"]);
+  // Same instant near the KST date boundary rolls the window forward.
+  assert.deepEqual(
+    lastLocalDays(Date.parse("2026-09-20T15:00:00.000Z"), 1, 540),
+    ["2026-09-21"],
   );
 });

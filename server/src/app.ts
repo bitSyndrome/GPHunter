@@ -28,7 +28,15 @@ export interface AppOptions {
   corsOrigin: string;
   rateLimit: RateLimitOptions;
   scriptsDir: string;
+  /** Minutes east of UTC used to bucket activity into calendar days. */
+  tzOffsetMinutes: number;
 }
+
+/**
+ * Body cap for /events/bulk. BULK_MAX_EVENTS (2000) fully-populated scan
+ * events measure ~1.1MB, so 2mb leaves headroom without inviting abuse.
+ */
+const BULK_BODY_LIMIT = "2mb";
 
 // Agent scripts downloadable without auth (they contain no secrets).
 const AGENT_FILES: Record<string, { file: string; type: string }> = {
@@ -42,6 +50,12 @@ export function createApp(db: DB, opts: AppOptions): Express {
   const app = express();
   app.set("trust proxy", true); // honor X-Forwarded-For for client IP
   app.use(cors({ origin: opts.corsOrigin }));
+  // A single hook event is tiny, so the default stays small. Bulk ingest
+  // carries up to BULK_MAX_EVENTS days of backfill, which the 256kb cap
+  // rejected outright (~460 events) even though the schema allowed 2000.
+  // Mounted first: body-parser marks the request parsed, so the global
+  // parser below skips it rather than re-reading with the smaller limit.
+  app.use("/api/v1/events/bulk", express.json({ limit: BULK_BODY_LIMIT }));
   app.use(express.json({ limit: "256kb" }));
 
   app.get("/api/v1/health", (_req, res) => {
@@ -197,7 +211,9 @@ Write-Host "  ghost-hunter init"
   api.get("/projects", (req: AuthedRequest, res) => {
     const sort = ProjectSortSchema.parse(req.query.sort ?? "active");
     const includeArchived = req.query.archived === "true";
-    res.json(listProjects(db, req.userId!, sort, includeArchived));
+    res.json(
+      listProjects(db, req.userId!, sort, includeArchived, opts.tzOffsetMinutes),
+    );
   });
 
   // Detail + sparkline.
@@ -207,7 +223,7 @@ Write-Host "  ghost-hunter init"
       res.status(400).json({ error: "bad id" });
       return;
     }
-    const project = getProject(db, req.userId!, id);
+    const project = getProject(db, req.userId!, id, opts.tzOffsetMinutes);
     if (!project) {
       res.status(404).json({ error: "not found" });
       return;
@@ -223,7 +239,13 @@ Write-Host "  ghost-hunter init"
       res.status(400).json({ error: "invalid patch" });
       return;
     }
-    const updated = patchProject(db, req.userId!, id, parsed.data);
+    const updated = patchProject(
+      db,
+      req.userId!,
+      id,
+      parsed.data,
+      opts.tzOffsetMinutes,
+    );
     if (!updated) {
       res.status(404).json({ error: "not found" });
       return;
@@ -232,9 +254,39 @@ Write-Host "  ghost-hunter init"
   });
 
   api.get("/stats", (req: AuthedRequest, res) => {
-    res.json(getStats(db, req.userId!));
+    res.json(getStats(db, req.userId!, opts.tzOffsetMinutes));
   });
 
   app.use("/api/v1", api);
+
+  /*
+   * Body-parser failures (oversized or malformed JSON) are thrown, not
+   * returned. Without this they surface as an HTML stack trace and a noisy
+   * server log, and clients cannot tell "too big" from "server down".
+   */
+  app.use(
+    (
+      err: Error & { type?: string; status?: number },
+      _req: express.Request,
+      res: express.Response,
+      next: express.NextFunction,
+    ) => {
+      if (res.headersSent) return next(err);
+      if (err?.type === "entity.too.large") {
+        res.status(413).json({
+          error: "payload too large",
+          hint: `send fewer events per request (bulk cap ${BULK_BODY_LIMIT})`,
+        });
+        return;
+      }
+      if (err instanceof SyntaxError && "body" in err) {
+        res.status(400).json({ error: "malformed JSON body" });
+        return;
+      }
+      console.error("[gph-server] unhandled error:", err?.message ?? err);
+      res.status(500).json({ error: "internal error" });
+    },
+  );
+
   return app;
 }

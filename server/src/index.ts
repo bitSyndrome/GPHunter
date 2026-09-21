@@ -11,6 +11,7 @@ const app = createApp(db, {
     refillPerSec: config.rateRefillPerSec,
   },
   scriptsDir: config.scriptsDir,
+  tzOffsetMinutes: config.tzOffsetMinutes,
 });
 
 app.listen(config.port, config.host, () => {

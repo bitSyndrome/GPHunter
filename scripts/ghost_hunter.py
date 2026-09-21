@@ -31,6 +31,9 @@ from pathlib import Path
 
 POST_TIMEOUT = 1.5
 GIT_TIMEOUT = 0.8
+# Events per /events/bulk request. Matches BULK_CHUNK_EVENTS in @gph/shared:
+# a long backfill would otherwise exceed the server's body limit in one shot.
+BULK_CHUNK = 400
 HEATMAP_DAYS = 30  # kept for parity; server owns the real window
 
 
@@ -224,13 +227,30 @@ def post_event(cfg, payload, timeout=POST_TIMEOUT) -> bool:
 
 
 def post_bulk(cfg, events, timeout=30):
+    """Post one chunk.
+
+    Returns (counts, None) on success, or (None, (reason, detail)) where
+    reason is "http" (server answered and refused) or "network" (unreachable).
+    Queueing to the outbox only helps for the latter.
+    """
     try:
         status, raw = _post(cfg, "/events/bulk", {"events": events}, timeout)
         if not (200 <= status < 300):
-            return None
-        return json.loads(raw)
-    except Exception:
-        return None
+            return None, ("http", f"HTTP {status}")
+        return json.loads(raw), None
+    except urllib.error.HTTPError as e:
+        detail = f"HTTP {e.code}"
+        try:
+            body = json.loads(e.read().decode("utf-8", "replace"))
+            if body.get("error"):
+                detail += f": {body['error']}"
+            if body.get("hint"):
+                detail += f" ({body['hint']})"
+        except Exception:
+            pass
+        return None, ("http", detail)
+    except Exception as e:
+        return None, ("network", str(e) or e.__class__.__name__)
 
 
 def enqueue(payload) -> None:
@@ -416,16 +436,40 @@ def cmd_scan(argv):
         )
         for day, count in sorted(by_day.items())
     ]
-    result = post_bulk(cfg, events)
-    if result:
-        print(
-            f'✓ Scanned "{name}": {len(by_day)} active days, {total} commits over {days}d '
-            f"({result['ingested']} new, {result['updated']} updated, {result['skipped']} unchanged)"
-        )
-    else:
-        for ev in events:
-            enqueue(ev)
-        print(f"• Server unreachable — queued {len(events)} day(s) to outbox (run 'flush' later)")
+    totals = {"ingested": 0, "updated": 0, "skipped": 0}
+    for i in range(0, len(events), BULK_CHUNK):
+        chunk = events[i : i + BULK_CHUNK]
+        result, failure = post_bulk(cfg, chunk)
+        if result is not None:
+            for k in totals:
+                totals[k] += result.get(k, 0)
+            continue
+
+        reason, detail = failure
+        remaining = events[i:]
+        if reason == "network":
+            for ev in remaining:
+                enqueue(ev)
+            print(
+                f"• Server unreachable ({detail}) — queued {len(remaining)} day(s) "
+                f"to outbox (run 'flush' later)"
+            )
+        else:
+            # The server answered and refused; replaying it later changes nothing.
+            sys.stderr.write(
+                f"✗ Server rejected the scan after {i} of {len(events)} day(s) — {detail}\n"
+            )
+        if i > 0:
+            print(
+                f"  ({totals['ingested']} new, {totals['updated']} updated, "
+                f"{totals['skipped']} unchanged before stopping)"
+            )
+        sys.exit(1)
+
+    print(
+        f'✓ Scanned "{name}": {len(by_day)} active days, {total} commits over {days}d '
+        f"({totals['ingested']} new, {totals['updated']} updated, {totals['skipped']} unchanged)"
+    )
 
 
 def cmd_flush(argv):

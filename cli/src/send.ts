@@ -31,11 +31,27 @@ export async function postEvent(
   }
 }
 
+export interface BulkCounts {
+  ingested: number;
+  updated: number;
+  skipped: number;
+}
+
+/**
+ * Outcome of a bulk post. A rejected request and an unreachable server need
+ * different advice, so they are reported apart instead of collapsing to null:
+ * queueing to the outbox only helps when the server is actually down.
+ */
+export type BulkOutcome =
+  | ({ ok: true } & BulkCounts)
+  | { ok: false; reason: "http"; status: number; detail: string }
+  | { ok: false; reason: "network"; detail: string };
+
 /** POST many events at once (scan backfill). Longer timeout than a hook. */
 export async function postBulk(
   cfg: CliConfig,
   events: EventPayload[],
-): Promise<{ ingested: number; updated: number; skipped: number } | null> {
+): Promise<BulkOutcome> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 30_000);
   try {
@@ -48,14 +64,25 @@ export async function postBulk(
       body: JSON.stringify({ events }),
       signal: ac.signal,
     });
-    if (!res.ok) return null;
-    return (await res.json()) as {
-      ingested: number;
-      updated: number;
-      skipped: number;
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = (await res.json()) as { error?: string; hint?: string };
+        if (body?.error) detail += `: ${body.error}`;
+        if (body?.hint) detail += ` (${body.hint})`;
+      } catch {
+        /* non-JSON error body */
+      }
+      return { ok: false, reason: "http", status: res.status, detail };
+    }
+    const counts = (await res.json()) as BulkCounts;
+    return { ok: true, ...counts };
+  } catch (e) {
+    return {
+      ok: false,
+      reason: "network",
+      detail: e instanceof Error ? e.message : String(e),
     };
-  } catch {
-    return null;
   } finally {
     clearTimeout(timer);
   }

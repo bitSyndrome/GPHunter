@@ -1,4 +1,5 @@
 import path from "node:path";
+import { parseUtcOffsetMinutes } from "@gph/shared";
 
 export interface Config {
   host: string;
@@ -9,6 +10,32 @@ export interface Config {
   rateCapacity: number;
   rateRefillPerSec: number;
   scriptsDir: string;
+  /** Minutes east of UTC used to bucket activity into calendar days. */
+  tzOffsetMinutes: number;
+}
+
+/**
+ * Day bucketing offset. Defaults to the server's own local offset, which is
+ * what a self-hosted single-user install wants: the heatmap matches the clock
+ * on the wall. Override with GPH_TZ_OFFSET (e.g. "+09:00") when the server
+ * runs somewhere other than where the user works.
+ */
+function loadTzOffsetMinutes(): number {
+  const raw = process.env.GPH_TZ_OFFSET;
+  if (raw === undefined || raw.trim() === "") {
+    // getTimezoneOffset() counts minutes *west* of UTC, so negate it.
+    return -new Date().getTimezoneOffset();
+  }
+  const parsed = parseUtcOffsetMinutes(raw);
+  if (parsed === null) {
+    const fallback = -new Date().getTimezoneOffset();
+    console.warn(
+      `[gph-server] WARNING: ignoring invalid GPH_TZ_OFFSET ${JSON.stringify(raw)}; ` +
+        `expected a form like "+09:00". Falling back to the server offset (${fallback} min).`,
+    );
+    return fallback;
+  }
+  return parsed;
 }
 
 export function loadConfig(): Config {
@@ -32,5 +59,6 @@ export function loadConfig(): Config {
     scriptsDir:
       process.env.GPH_SCRIPTS_DIR ??
       path.resolve(import.meta.dirname, "..", "..", "scripts"),
+    tzOffsetMinutes: loadTzOffsetMinutes(),
   };
 }
