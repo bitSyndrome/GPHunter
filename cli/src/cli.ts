@@ -16,7 +16,7 @@ import {
 } from "./collect.ts";
 import { postEvent, postBulk, enqueue, flushOutbox } from "./send.ts";
 import { runHook } from "./hookrun.ts";
-import type { EventPayload } from "@gph/shared";
+import { BULK_CHUNK_EVENTS, type EventPayload } from "@gph/shared";
 
 const CLAUDE_SETTINGS = path.join(os.homedir(), ".claude", "settings.json");
 
@@ -185,18 +185,48 @@ async function cmdScan(args: string[]): Promise<void> {
     }));
 
   const totalCommits = [...byDay.values()].reduce((a, b) => a + b, 0);
-  const result = await postBulk(cfg, events);
-  if (result) {
-    console.log(
-      `✓ Scanned "${name}": ${byDay.size} active days, ${totalCommits} commits over ${days}d ` +
-        `(${result.ingested} new, ${result.updated} updated, ${result.skipped} unchanged)`,
-    );
-  } else {
-    for (const ev of events) enqueue(ev);
-    console.log(
-      `• Server unreachable — queued ${events.length} day(s) to outbox (run 'ghost-hunter flush' later)`,
-    );
+
+  // Send in chunks: a long history would otherwise exceed the server's body
+  // limit in one request, and chunking keeps whatever already succeeded.
+  const totals = { ingested: 0, updated: 0, skipped: 0 };
+  for (let i = 0; i < events.length; i += BULK_CHUNK_EVENTS) {
+    const chunk = events.slice(i, i + BULK_CHUNK_EVENTS);
+    const result = await postBulk(cfg, chunk);
+
+    if (result.ok) {
+      totals.ingested += result.ingested;
+      totals.updated += result.updated;
+      totals.skipped += result.skipped;
+      continue;
+    }
+
+    const remaining = events.slice(i);
+    if (result.reason === "network") {
+      // Server is down: the outbox exists precisely for this.
+      for (const ev of remaining) enqueue(ev);
+      console.log(
+        `• Server unreachable (${result.detail}) — queued ${remaining.length} day(s) ` +
+          `to outbox (run 'ghost-hunter flush' later)`,
+      );
+    } else {
+      // The server answered and refused. Queueing would just replay the
+      // same rejection later, so say what happened instead.
+      console.error(
+        `✗ Server rejected the scan after ${i} of ${events.length} day(s) — ${result.detail}`,
+      );
+    }
+    if (i > 0) {
+      console.log(
+        `  (${totals.ingested} new, ${totals.updated} updated, ${totals.skipped} unchanged before stopping)`,
+      );
+    }
+    process.exit(1);
   }
+
+  console.log(
+    `✓ Scanned "${name}": ${byDay.size} active days, ${totalCommits} commits over ${days}d ` +
+      `(${totals.ingested} new, ${totals.updated} updated, ${totals.skipped} unchanged)`,
+  );
 }
 
 async function cmdFlush(): Promise<void> {

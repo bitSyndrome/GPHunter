@@ -219,6 +219,9 @@ scripts/ghost-hunter.sh log "project-name" "what you did"
     A manual completion value overrides it.
 - **Contribution heatmap** — each card's `HeatMap` grid (last 30 days, oldest→
   newest wrapping every 10 cells); shaded in 5 levels by daily turns (GitHub-style).
+  Day boundaries follow the **server's local time zone**. If the server runs
+  elsewhere (say a UTC VPS), set `GPH_TZ_OFFSET=+09:00` in `.env`. The heatmap,
+  momentum and detail sparkline all share that same day boundary.
 - **Actions** — 📌 pin / 🗄 archive icons in the card's top-right (always visible);
   click the title for details (sparkline, recent summary, manual completion).
 

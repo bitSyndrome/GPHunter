@@ -103,6 +103,14 @@ export const BulkEventSchema = z.object({
 });
 export type BulkEventPayload = z.infer<typeof BulkEventSchema>;
 
+/**
+ * Events per /events/bulk request. Well under both the schema cap (2000) and
+ * the server body limit, so a long backfill splits into requests that each
+ * succeed on their own — a failure midway keeps the chunks already accepted.
+ * Every agent (Node, Python, shell) uses this same number.
+ */
+export const BULK_CHUNK_EVENTS = 400;
+
 export const BulkEventResponseSchema = z.object({
   ingested: z.number().int(),
   updated: z.number().int(),
@@ -173,6 +181,84 @@ export const StatsSchema = z.object({
   buried: z.number().int(),
 });
 export type Stats = z.infer<typeof StatsSchema>;
+
+/* ── Local-day bucketing ────────────────────────── */
+
+/*
+ * Events are stored as UTC instants, but a contribution heatmap is only
+ * meaningful in the *user's* day. Bucketing by UTC puts work done between
+ * midnight and the UTC offset onto the previous square — e.g. in KST (+09:00)
+ * everything before 09:00 lands on yesterday.
+ *
+ * All day bucketing therefore goes through these helpers, so the SQL grouping
+ * and the JS day axis can never drift apart.
+ *
+ * A fixed offset (not an IANA zone) keeps the SQLite grouping a plain
+ * date() modifier. Zones without DST — KST, IST, JST — are exact; in a
+ * DST zone the offset is whatever is configured, so days on the far side of
+ * a transition can misplace events within an hour of local midnight.
+ */
+
+/** Minutes east of UTC (KST = +540, US Eastern standard = -300). */
+export type UtcOffsetMinutes = number;
+
+const MAX_OFFSET_MINUTES = 16 * 60; // real zones span UTC-12 .. UTC+14
+
+/**
+ * Parse a UTC offset written as "+09:00", "-0500", "+9", "Z" or "UTC".
+ * Returns null when it is not a valid offset, so callers can warn and
+ * fall back rather than silently bucketing into the wrong day.
+ */
+export function parseUtcOffsetMinutes(raw: string): UtcOffsetMinutes | null {
+  const t = raw.trim();
+  if (!t) return null;
+  if (/^(z|utc|gmt)$/i.test(t)) return 0;
+  const m = t.match(/^([+-])?(\d{1,2}):?(\d{2})?$/);
+  if (!m) return null;
+  const sign = m[1] === "-" ? -1 : 1;
+  const hours = Number(m[2]);
+  const mins = m[3] === undefined ? 0 : Number(m[3]);
+  if (mins > 59) return null;
+  const total = sign * (hours * 60 + mins);
+  return Math.abs(total) > MAX_OFFSET_MINUTES ? null : total;
+}
+
+/** Local calendar day (YYYY-MM-DD) that an instant falls on. */
+export function localDayKey(
+  epochMs: number,
+  offsetMinutes: UtcOffsetMinutes,
+): string {
+  return new Date(epochMs + offsetMinutes * 60_000).toISOString().slice(0, 10);
+}
+
+/**
+ * SQLite date() modifier that buckets a stored UTC timestamp into the same
+ * local day `localDayKey` produces: date(ts, sqliteDayModifier(offset)).
+ */
+export function sqliteDayModifier(offsetMinutes: UtcOffsetMinutes): string {
+  return `${offsetMinutes >= 0 ? "+" : "-"}${Math.abs(offsetMinutes)} minutes`;
+}
+
+/** Instant (epoch ms) at which a local calendar day begins. */
+export function localDayStartMs(
+  day: string,
+  offsetMinutes: UtcOffsetMinutes,
+): number {
+  return Date.parse(`${day}T00:00:00.000Z`) - offsetMinutes * 60_000;
+}
+
+/** Local day keys for the last `n` days ending today, oldest → newest. */
+export function lastLocalDays(
+  nowMs: number,
+  n: number,
+  offsetMinutes: UtcOffsetMinutes,
+): string[] {
+  const out: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    out.push(localDayKey(nowMs - i * MS_PER_DAY, offsetMinutes));
+  }
+  return out;
+}
 
 /* ── Pure computation ──────────────────────────────────────── */
 

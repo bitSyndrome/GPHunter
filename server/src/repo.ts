@@ -4,6 +4,9 @@ import {
   computeMaturityScore,
   computeMomentum,
   daysBetween,
+  lastLocalDays,
+  localDayStartMs,
+  sqliteDayModifier,
   HEATMAP_DAYS,
   MS_PER_DAY,
   type EventPayload,
@@ -303,29 +306,25 @@ interface DailyMetrics {
   heatmap: { day: string; value: number }[]; // last HEATMAP_DAYS, oldest→newest
 }
 
-/** UTC date strings (YYYY-MM-DD) for the last n days, oldest → newest. */
-function lastNDates(nowMs: number, n: number): string[] {
-  const out: string[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    out.push(new Date(nowMs - i * MS_PER_DAY).toISOString().slice(0, 10));
-  }
-  return out;
-}
+
 
 /** Per-project daily turn totals → momentum and heatmap, in one query. */
 function dailyMetricsMap(
   db: DB,
   userId: number,
   nowMs: number,
+  tzOffsetMinutes: number,
 ): Map<number, DailyMetrics> {
+  // Bucket by the user's calendar day, not UTC's — see the note in @gph/shared.
+  const mod = sqliteDayModifier(tzOffsetMinutes);
   const rows = db
     .prepare(
-      `SELECT e.project_id AS pid, date(e.ts) AS day, SUM(e.turns) AS turns
+      `SELECT e.project_id AS pid, date(e.ts, ?) AS day, SUM(e.turns) AS turns
        FROM events e JOIN projects p ON p.id = e.project_id
        WHERE p.user_id = ?
-       GROUP BY e.project_id, date(e.ts)`,
+       GROUP BY e.project_id, date(e.ts, ?)`,
     )
-    .all(userId) as { pid: number; day: string; turns: number }[];
+    .all(mod, userId, mod) as { pid: number; day: string; turns: number }[];
 
   const byProject = new Map<number, Map<string, number>>();
   for (const r of rows) {
@@ -334,13 +333,15 @@ function dailyMetricsMap(
     byProject.set(r.pid, m);
   }
 
-  const dates = lastNDates(nowMs, HEATMAP_DAYS);
+  const dates = lastLocalDays(nowMs, HEATMAP_DAYS, tzOffsetMinutes);
   const recentThreshold = nowMs - 7 * MS_PER_DAY;
   const out = new Map<number, DailyMetrics>();
 
   for (const [pid, dayMap] of byProject) {
     const days = [...dayMap.entries()].map(([day, turns]) => ({
-      dayMs: Date.parse(day),
+      // Instant at which that local day started, so the 7-day windows below
+      // line up with the same clock the buckets were built from.
+      dayMs: localDayStartMs(day, tzOffsetMinutes),
       turns,
     }));
 
@@ -365,8 +366,14 @@ function dailyMetricsMap(
 }
 
 /** Zero-filled heatmap for projects with no activity in the window. */
-function emptyHeatmap(nowMs: number): { day: string; value: number }[] {
-  return lastNDates(nowMs, HEATMAP_DAYS).map((day) => ({ day, value: 0 }));
+function emptyHeatmap(
+  nowMs: number,
+  tzOffsetMinutes: number,
+): { day: string; value: number }[] {
+  return lastLocalDays(nowMs, HEATMAP_DAYS, tzOffsetMinutes).map((day) => ({
+    day,
+    value: 0,
+  }));
 }
 
 function deviceCountMap(db: DB, userId: number): Map<number, number> {
@@ -386,6 +393,7 @@ function toView(
   nowMs: number,
   daily: DailyMetrics | undefined,
   deviceCount: number,
+  tzOffsetMinutes: number,
 ): Project {
   const days = daysBetween(Date.parse(row.last_active_at), nowMs);
   return {
@@ -407,7 +415,7 @@ function toView(
     ghost_tier: computeGhostTier(days),
     ghost_score: Math.round(computeGhostScore(days, row.total_turns) * 100) / 100,
     momentum: computeMomentum(daily?.recent7d ?? 0, daily?.peak7d ?? 0),
-    heatmap: daily?.heatmap ?? emptyHeatmap(nowMs),
+    heatmap: daily?.heatmap ?? emptyHeatmap(nowMs, tzOffsetMinutes),
   };
 }
 
@@ -418,16 +426,17 @@ export function listProjects(
   userId: number,
   sort: ProjectSort,
   includeArchived: boolean,
+  tzOffsetMinutes: number,
 ): Project[] {
   const nowMs = Date.now();
   const rows = db
     .prepare("SELECT * FROM projects WHERE user_id = ?")
     .all(userId) as ProjectRow[];
-  const daily = dailyMetricsMap(db, userId, nowMs);
+  const daily = dailyMetricsMap(db, userId, nowMs, tzOffsetMinutes);
   const devs = deviceCountMap(db, userId);
 
   let views = rows.map((r) =>
-    toView(r, nowMs, daily.get(r.id), devs.get(r.id) ?? 0),
+    toView(r, nowMs, daily.get(r.id), devs.get(r.id) ?? 0, tzOffsetMinutes),
   );
   if (!includeArchived) views = views.filter((v) => !v.archived);
 
@@ -461,6 +470,7 @@ export function getProject(
   db: DB,
   userId: number,
   id: number,
+  tzOffsetMinutes: number,
 ): (Project & { activity: { day: string; turns: number }[]; recent_summary: string | null }) | null {
   const nowMs = Date.now();
   const row = db
@@ -468,14 +478,15 @@ export function getProject(
     .get(id, userId) as ProjectRow | undefined;
   if (!row) return null;
 
-  const daily = dailyMetricsMap(db, userId, nowMs).get(id);
+  const daily = dailyMetricsMap(db, userId, nowMs, tzOffsetMinutes).get(id);
   const devs = deviceCountMap(db, userId).get(id) ?? 0;
+  const mod = sqliteDayModifier(tzOffsetMinutes);
   const activity = db
     .prepare(
-      `SELECT date(ts) AS day, SUM(turns) AS turns
-       FROM events WHERE project_id = ? GROUP BY date(ts) ORDER BY day`,
+      `SELECT date(ts, ?) AS day, SUM(turns) AS turns
+       FROM events WHERE project_id = ? GROUP BY date(ts, ?) ORDER BY day`,
     )
-    .all(id) as { day: string; turns: number }[];
+    .all(mod, id, mod) as { day: string; turns: number }[];
   const recent = db
     .prepare(
       `SELECT summary FROM events
@@ -485,7 +496,7 @@ export function getProject(
     .get(id) as { summary: string } | undefined;
 
   return {
-    ...toView(row, nowMs, daily, devs),
+    ...toView(row, nowMs, daily, devs, tzOffsetMinutes),
     activity,
     recent_summary: recent?.summary ?? null,
   };
@@ -496,6 +507,7 @@ export function patchProject(
   userId: number,
   id: number,
   patch: ProjectPatch,
+  tzOffsetMinutes: number,
 ): Project | null {
   const owned = db
     .prepare("SELECT id FROM projects WHERE id = ? AND user_id = ?")
@@ -531,13 +543,18 @@ export function patchProject(
   return toView(
     row,
     nowMs,
-    dailyMetricsMap(db, userId, nowMs).get(id),
+    dailyMetricsMap(db, userId, nowMs, tzOffsetMinutes).get(id),
     deviceCountMap(db, userId).get(id) ?? 0,
+    tzOffsetMinutes,
   );
 }
 
-export function getStats(db: DB, userId: number): Stats {
-  const projects = listProjects(db, userId, "active", false);
+export function getStats(
+  db: DB,
+  userId: number,
+  tzOffsetMinutes: number,
+): Stats {
+  const projects = listProjects(db, userId, "active", false, tzOffsetMinutes);
   return {
     total_projects: projects.length,
     active: projects.filter(

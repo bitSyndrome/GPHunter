@@ -242,7 +242,36 @@ cmd_scan() {
     --date=short --pretty=%cd 2>/dev/null | sort | uniq -c)"
   [ -n "$counts" ] || { echo "No commits found (not a git repo, or none in range)." >&2; exit 1; }
 
-  local events="" total=0 day count
+  # Events per request. Matches BULK_CHUNK_EVENTS in @gph/shared: sending a
+  # long history in one body would exceed the server's limit.
+  local chunk_max=400
+
+  # Post one chunk. Distinguishes "server refused" from "server unreachable",
+  # since only the latter is worth retrying later.
+  local sent_days=0
+  post_chunk() {
+    local payload="$1" http out
+    out="$(curl -sS --max-time 30 -o /tmp/gph-bulk.$$ -w '%{http_code}' \
+      -X POST "$server/api/v1/events/bulk" \
+      -H "authorization: Bearer $token" -H "content-type: application/json" \
+      -d "{\"events\":[$payload]}" 2>/dev/null)" || out=""
+    http="$out"
+    local resp=""; [ -f "/tmp/gph-bulk.$$" ] && resp="$(cat "/tmp/gph-bulk.$$")"
+    rm -f "/tmp/gph-bulk.$$"
+    if [ -z "$http" ] || [ "$http" = "000" ]; then
+      echo "✗ Server unreachable after $sent_days day(s)." >&2
+      exit 1
+    fi
+    case "$http" in
+      2*) return 0 ;;
+      *)
+        echo "✗ Server rejected the scan after $sent_days day(s) (HTTP $http): $resp" >&2
+        exit 1
+        ;;
+    esac
+  }
+
+  local events="" total=0 n=0 day count
   while read -r count day; do
     [ -n "$day" ] || continue
     total=$((total + count))
@@ -250,21 +279,22 @@ cmd_scan() {
     ev="$(printf '{"device_id":%s,"hostname":%s,"event_type":"session_end","session_id":"scan:%s","ts":"%sT12:00:00Z","project":{"key":%s,"alt_keys":%s,"name":%s,"path":%s,"repo_url":%s},"metrics":{"turns":%s,"duration_sec":0,"files_changed":0},"maturity_signals":%s,"summary":"%s commit(s) (scan)"}' \
       "$devjson" "$hostjson" "$day" "$day" "$keyjson" "$alt" "$namejson" "$pathjson" "$repojson" "$count" "$maturity" "$count")"
     events="$events${events:+,}$ev"
+    n=$((n + 1))
+    if [ "$n" -ge "$chunk_max" ]; then
+      post_chunk "$events"
+      sent_days=$((sent_days + n))
+      events=""; n=0
+    fi
   done <<EOF
 $counts
 EOF
 
-  local body resp
-  body="{\"events\":[$events]}"
-  resp="$(curl -sS --max-time 30 -X POST "$server/api/v1/events/bulk" \
-    -H "authorization: Bearer $token" -H "content-type: application/json" \
-    -d "$body" 2>/dev/null)"
-  if printf '%s' "$resp" | grep -q '"ingested"'; then
-    echo "✓ Scanned \"$name\": $total commit(s) over ${days}d → $resp"
-  else
-    echo "✗ Scan failed (server unreachable or rejected): $resp" >&2
-    exit 1
+  if [ -n "$events" ]; then
+    post_chunk "$events"
+    sent_days=$((sent_days + n))
   fi
+
+  echo "✓ Scanned \"$name\": $sent_days active day(s), $total commit(s) over ${days}d"
 }
 
 flush_outbox() {

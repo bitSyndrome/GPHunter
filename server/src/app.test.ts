@@ -3,15 +3,20 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import { openDb } from "./db.ts";
 import { createApp } from "./app.ts";
+import { localDayKey } from "@gph/shared";
 
 const TOKEN = "test-token";
 
-function startServer(rate = { capacity: 1000, refillPerSec: 1000 }) {
+function startServer(
+  rate = { capacity: 1000, refillPerSec: 1000 },
+  tzOffsetMinutes = 0,
+) {
   const db = openDb(":memory:", TOKEN);
   const app = createApp(db, {
     corsOrigin: "*",
     rateLimit: rate,
     scriptsDir: new URL("../../scripts", import.meta.url).pathname,
+    tzOffsetMinutes,
   });
   const server = app.listen(0);
   const port = (server.address() as AddressInfo).port;
@@ -415,5 +420,167 @@ test("patch archives a project and removes it from default list", async () => {
   ).json();
   assert.equal(withArchived.length, 1);
 
+  server.close();
+});
+
+test("heatmap buckets activity by the configured local day, not UTC", async () => {
+  // 23:00Z two days ago: still "yesterday-ish" in UTC, but already the next
+  // calendar day in KST (+09:00). Built relative to now so the instant always
+  // sits inside the 30-day window, whenever the suite runs.
+  const utcDay = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+  const ts = `${utcDay}T23:00:00.000Z`;
+  const kstDay = localDayKey(Date.parse(ts), 540);
+  assert.notEqual(utcDay, kstDay, "fixture must straddle the KST date line");
+
+  const post = async (base: string) =>
+    fetch(`${base}/api/v1/events`, {
+      method: "POST",
+      headers: authed(),
+      body: JSON.stringify({
+        device_id: "d",
+        event_type: "session_end",
+        session_id: "s1",
+        ts,
+        project: { key: "k", name: "n" },
+        metrics: { turns: 4 },
+      }),
+    });
+  const heatmapOf = async (base: string) => {
+    const [p] = await (
+      await fetch(`${base}/api/v1/projects`, { headers: authed() })
+    ).json();
+    return new Map<string, number>(
+      (p.heatmap as { day: string; value: number }[]).map((h) => [h.day, h.value]),
+    );
+  };
+
+  // UTC server: the turns land on the UTC day.
+  const utc = startServer(undefined, 0);
+  await post(utc.base);
+  const utcMap = await heatmapOf(utc.base);
+  assert.equal(utcMap.get(utcDay), 4);
+  assert.equal(utcMap.get(kstDay) ?? 0, 0);
+  utc.server.close();
+
+  // KST server: the same instant lands on the *next* day — the bug this fixes.
+  const kst = startServer(undefined, 540);
+  await post(kst.base);
+  const kstMap = await heatmapOf(kst.base);
+  assert.equal(kstMap.get(kstDay), 4);
+  assert.equal(kstMap.get(utcDay) ?? 0, 0);
+  kst.server.close();
+});
+
+test("project detail sparkline uses the same local days as the heatmap", async () => {
+  const utcDay = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+  const ts = `${utcDay}T23:00:00.000Z`;
+  const kstDay = localDayKey(Date.parse(ts), 540);
+
+  const { server, base } = startServer(undefined, 540);
+  const res = await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({
+      device_id: "d",
+      event_type: "session_end",
+      ts,
+      project: { key: "k", name: "n" },
+      metrics: { turns: 3 },
+    }),
+  });
+  const { project_id } = await res.json();
+  const detail = await (
+    await fetch(`${base}/api/v1/projects/${project_id}`, { headers: authed() })
+  ).json();
+  // Detail and list must agree, or the modal contradicts the card.
+  assert.deepEqual(detail.activity, [{ day: kstDay, turns: 3 }]);
+  server.close();
+});
+
+/* ── Body limits ────────────────────────────────── */
+
+function scanEvent(day: string) {
+  return {
+    device_id: "d",
+    hostname: "a-reasonably-long-hostname",
+    event_type: "session_end",
+    session_id: `scan:${day}`,
+    ts: `${day}T12:00:00Z`,
+    project: {
+      key: "github.com/someuser/some-project",
+      alt_keys: ["local:host:/home/someuser/dev/some-project"],
+      name: "some-project",
+      path: "/home/someuser/dev/some-project",
+      repo_url: "git@github.com:someuser/some-project.git",
+    },
+    metrics: { turns: 1, duration_sec: 0, files_changed: 0 },
+    maturity_signals: {
+      has_readme: true,
+      has_tests: true,
+      has_ci: false,
+      has_deploy: false,
+      git_tags: 1,
+      version: "0.1.0",
+    },
+    summary: "1 commit(s) (scan)",
+  };
+}
+
+test("bulk ingest accepts a body larger than the single-event limit", async () => {
+  const { server, base } = startServer();
+  // ~600 scan events is comfortably over the 256kb single-event cap; the
+  // schema allowed this all along while the body parser rejected it.
+  const events = Array.from({ length: 600 }, (_, i) =>
+    scanEvent(`20${10 + (i % 15)}-${String(1 + (i % 12)).padStart(2, "0")}-${String(1 + (i % 28)).padStart(2, "0")}`),
+  );
+  const body = JSON.stringify({ events });
+  assert.ok(body.length > 256 * 1024, "fixture must exceed the small limit");
+
+  const res = await fetch(`${base}/api/v1/events/bulk`, {
+    method: "POST",
+    headers: authed(),
+    body,
+  });
+  assert.equal(res.status, 200);
+  server.close();
+});
+
+test("an oversized body fails as JSON, not an HTML stack trace", async () => {
+  const { server, base } = startServer();
+  const padded = Array.from({ length: 2000 }, () => ({
+    ...scanEvent("2020-01-01"),
+    summary: "x".repeat(900),
+  }));
+  const res = await fetch(`${base}/api/v1/events/bulk`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({ events: padded }),
+  });
+  assert.equal(res.status, 413);
+  assert.match(res.headers.get("content-type") ?? "", /application\/json/);
+  assert.equal((await res.json()).error, "payload too large");
+  server.close();
+});
+
+test("a single event over the small limit is still rejected", async () => {
+  const { server, base } = startServer();
+  const res = await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: JSON.stringify({ pad: "x".repeat(300 * 1024) }),
+  });
+  assert.equal(res.status, 413);
+  server.close();
+});
+
+test("malformed JSON returns 400, not 500", async () => {
+  const { server, base } = startServer();
+  const res = await fetch(`${base}/api/v1/events`, {
+    method: "POST",
+    headers: authed(),
+    body: "{nope",
+  });
+  assert.equal(res.status, 400);
+  assert.equal((await res.json()).error, "malformed JSON body");
   server.close();
 });
